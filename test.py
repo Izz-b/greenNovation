@@ -17,20 +17,18 @@ from ai.graph.learning_workflow import build_learning_graph
 state = {
     "session_history": [],
     "conversation_summary": "",
+    # energy_decision is set each turn by energy_agent (after readiness)
 
-    "energy_decision": {
-        "mode": "balanced",
-        "max_tokens": 400,
-        "temperature": 0.3,
-        "use_rag": True,
-        "top_k": 5,
-        "chunk_truncation_chars": 600,
-        "generate_quiz": True,
-        "include_sources": True,
-        "response_depth": "medium"
+    "passive_behavior_signals": {
+        "tasks_due_3d": 2,
+        "overdue_tasks": 0,
+        "project_risk_level": "low",
+        "study_sessions_last_7d": 5,
+        "avg_session_completion_rate": 0.8,
+        "avg_quiz_score_trend": 4.0,
+        "late_night_activity_ratio": 0.1,
+        "long_sessions_without_breaks": 0,
     },
-
-    "readiness_signal": {"behavioral_fatigue_band": "low"},
 
     "course_context": {},
     "agent_runs": {},
@@ -47,7 +45,54 @@ queries = [
     ("learn_concept", "What is a decorator in python?"),
     ("practice", "Give me exercises on it"),
     ("revise", "Now help me revise it"),
-    ("learn_concept", "Explain it deeply with examples"),  # 🔥 added deep case
+    ("learn_concept", "Explain it deeply with examples"),  # deep case
+]
+
+readiness_scenarios = [
+    # Turn 1: healthy baseline
+    {
+        "tasks_due_3d": 2,
+        "overdue_tasks": 0,
+        "project_risk_level": "low",
+        "study_sessions_last_7d": 5,
+        "avg_session_completion_rate": 0.8,
+        "avg_quiz_score_trend": 4.0,
+        "late_night_activity_ratio": 0.1,
+        "long_sessions_without_breaks": 0,
+    },
+    # Turn 2: rising pressure/fatigue
+    {
+        "tasks_due_3d": 5,
+        "overdue_tasks": 1,
+        "project_risk_level": "medium",
+        "study_sessions_last_7d": 3,
+        "avg_session_completion_rate": 0.6,
+        "avg_quiz_score_trend": -2.0,
+        "late_night_activity_ratio": 0.45,
+        "long_sessions_without_breaks": 2,
+    },
+    # Turn 3: highest pressure
+    {
+        "tasks_due_3d": 7,
+        "overdue_tasks": 2,
+        "project_risk_level": "high",
+        "study_sessions_last_7d": 2,
+        "avg_session_completion_rate": 0.5,
+        "avg_quiz_score_trend": -8.0,
+        "late_night_activity_ratio": 0.55,
+        "long_sessions_without_breaks": 3,
+    },
+    # Turn 4: recovery
+    {
+        "tasks_due_3d": 3,
+        "overdue_tasks": 0,
+        "project_risk_level": "low",
+        "study_sessions_last_7d": 4,
+        "avg_session_completion_rate": 0.75,
+        "avg_quiz_score_trend": 2.0,
+        "late_night_activity_ratio": 0.2,
+        "long_sessions_without_breaks": 1,
+    },
 ]
 
 
@@ -58,50 +103,14 @@ queries = [
 async def main():
     global state
 
-    print("🚀 Starting test...\n")
+    print("Starting test...\n")
 
     graph = build_learning_graph()
-    print("✅ Graph built\n")
+    print("Graph built\n")
 
     for i, (intent, query) in enumerate(queries):
 
-        print(f"\n👉 Turn {i+1}")
-
-        # -------------------------
-        # SIMULATE ENERGY CHANGES
-        # -------------------------
-        if i == 1:
-            print("⚡ Switching to LIGHT mode")
-            state["energy_decision"].update({
-                "mode": "light",
-                "max_tokens": 150,
-                "generate_quiz": False,
-                "include_sources": False,
-                "response_depth": "short",
-                "top_k": 3
-            })
-
-        elif i == 2:
-            print("⚖️ Switching to BALANCED mode")
-            state["energy_decision"].update({
-                "mode": "balanced",
-                "max_tokens": 400,
-                "generate_quiz": True,
-                "include_sources": True,
-                "response_depth": "medium",
-                "top_k": 5
-            })
-
-        elif i == 3:
-            print("🔥 Switching to DEEP mode")
-            state["energy_decision"].update({
-                "mode": "deep",
-                "max_tokens": 700,
-                "generate_quiz": True,
-                "include_sources": True,
-                "response_depth": "long",
-                "top_k": 8
-            })
+        print(f"\nTurn {i+1}")
 
         # -------------------------
         # USER INPUT
@@ -113,6 +122,7 @@ async def main():
 
         state["query"] = query
         state["routing"] = {"intent": intent}
+        state["passive_behavior_signals"] = readiness_scenarios[min(i, len(readiness_scenarios) - 1)]
 
         state = await graph.ainvoke(state)
 
@@ -135,7 +145,7 @@ async def main():
         print("\nASSISTANT:\n")
 
         if isinstance(result, list):
-            print("📚 Quiz Output:\n")
+            print("Quiz Output:\n")
             print(json.dumps(result, indent=2))
         else:
             print(result)
@@ -143,8 +153,21 @@ async def main():
         # -------------------------
         # DEBUG INFO
         # -------------------------
-        print("\n--- ENERGY ---")
+        print("\n--- PASSIVE BEHAVIOR (readiness input) ---")
+        print(json.dumps(state.get("passive_behavior_signals", {}), indent=2))
+
+        print("\n--- ENERGY (from energy_agent) ---")
         print(json.dumps(state.get("energy_decision", {}), indent=2))
+
+        print("\n--- READINESS SIGNAL ---")
+        print(json.dumps(state.get("readiness_signal", {}), indent=2))
+
+        print("\n--- MERGED SIGNAL BUNDLE ---")
+        bundle = state.get("merged_signal_bundle") or {}
+        # Avoid dumping full chunk bodies
+        slim = {k: v for k, v in bundle.items() if k != "retrieved_chunks"}
+        slim["retrieved_chunk_count"] = len(bundle.get("retrieved_chunks") or [])
+        print(json.dumps(slim, indent=2, default=str))
 
         print("\n--- RAG META ---")
         print(state.get("agent_runs", {}).get("rag_agent", {}))
