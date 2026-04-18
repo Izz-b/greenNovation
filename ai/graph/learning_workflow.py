@@ -74,7 +74,11 @@ def planning_step(state: dict) -> dict:
         **result,
         "planner_state": planner_state
     }
-
+def route_after_learning(state: Dict[str, Any]) -> str:
+    action = state.get("session_action", "continue")
+    if action == "stop":
+        return "planning"
+    return END
 def build_learning_graph():
     """Single path: orchestrator (all specialist agents) → learning → end."""
     graph = StateGraph(dict)
@@ -84,7 +88,14 @@ def build_learning_graph():
 
     graph.add_edge(START, "orchestrator")
     graph.add_edge("orchestrator", "learning")
-    graph.add_edge("learning", "planning")  
+    graph.add_conditional_edges(
+        "learning",
+        route_after_learning,
+        {
+            "planning": "planning",
+            END: END,
+        },
+    )    
     graph.add_edge("planning", END)
 
     return graph.compile()
