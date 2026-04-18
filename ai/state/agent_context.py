@@ -4,9 +4,9 @@ from typing import Any, Dict, List, Literal
 from typing_extensions import TypedDict
 
 
-# =========================
+
 # Core literals
-# =========================
+
 
 IntentType = Literal[
     "learn_concept",
@@ -31,9 +31,8 @@ AgentName = Literal[
 ]
 
 
-# =========================
 # Shared sub-objects
-# =========================
+
 
 class MessageTurn(TypedDict, total=False):
     role: Literal["system", "user", "assistant"]
@@ -81,11 +80,15 @@ class RoutingDecision(TypedDict, total=False):
     token_budget: int
 
 
+# Retrieval
+
+
 class RetrievalQuery(TypedDict, total=False):
     rewritten_query: str
     filters: Dict[str, Any]
     top_k: int
     search_type: Literal["semantic", "keyword", "hybrid"]
+    max_chars_per_chunk: int  # 🔥 energy-aware truncation
 
 
 class RetrievedChunk(TypedDict, total=False):
@@ -96,6 +99,10 @@ class RetrievedChunk(TypedDict, total=False):
     content: str
     score: float
     metadata: Dict[str, Any]
+
+
+
+# Profile & Readiness
 
 
 class ProfileVector(TypedDict, total=False):
@@ -141,14 +148,44 @@ class ReadinessSignal(TypedDict, total=False):
     reasoning_summary: str
 
 
+
+# Energy Decision 
+
+
 class EnergyDecision(TypedDict, total=False):
+    # mode
     mode: EnergyMode
+
+    # LLM control
     max_tokens: int
+    temperature: float
+
+    # RAG control
     use_rag: bool
-    use_profile: bool
-    use_readiness: bool
+    top_k: int
+    chunk_truncation_chars: int
+
+    # agent execution control
+    allow_learning_agent: bool
+    allow_planning_agent: bool
+    allow_profile_agent: bool
+
+    # feature toggles
+    generate_quiz: bool
+    include_sources: bool
+
+    # response shaping
     response_depth: Literal["short", "medium", "long"]
+
+    # energy / cost tracking
+    token_budget_remaining: int
+    estimated_cost: float
+
+    # reasoning
     reason: str
+
+
+# Learning / Planning
 
 
 class LearningPlanSignal(TypedDict, total=False):
@@ -174,7 +211,13 @@ class MergedSignalBundle(TypedDict, total=False):
 
 
 class ResponseDraft(TypedDict, total=False):
-    answer_type: Literal["explanation", "exercise", "summary", "plan", "supportive_guidance"]
+    answer_type: Literal[
+        "explanation",
+        "exercise",
+        "summary",
+        "plan",
+        "supportive_guidance"
+    ]
     structure: str
     tone: str
     key_points: List[str]
@@ -189,14 +232,17 @@ class AgentRunMeta(TypedDict, total=False):
 
 
 # =========================
-# Main shared state
+# Main Shared State
 # =========================
 
 class AgentContext(TypedDict, total=False):
+
     # ---- request/session input ----
     query: str
     user_profile: UserProfile
     session_history: List[MessageTurn]
+    conversation_summary: str  
+
     session_snapshot: SessionSnapshot
     course_context: CourseContext
     concept_graph: Dict[str, Any]
@@ -220,8 +266,13 @@ class AgentContext(TypedDict, total=False):
     response_draft: ResponseDraft
 
     # ---- downstream/final ----
-    final_response: str
+    final_response: Any  # can be str OR JSON (quiz)
     planning_task: Dict[str, Any]
+
+    # ---- energy tracking (NEW) ----
+    total_tokens_used: int
+    total_estimated_cost: float
+    request_count: int
 
     # ---- observability ----
     warnings: List[str]
