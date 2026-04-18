@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import copy
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from ai.agents.profile.node import profile_agent_node
 from ai.agents.rag.agent import rag_agent
@@ -66,6 +68,92 @@ def _build_execution_plan(intent: str, energy_decision: Dict[str, Any]) -> Dict[
         "token_budget": token_budget,
         "response_depth": energy_decision.get("response_depth", "medium"),
     }
+
+
+def _run_readiness_patch(base: Dict[str, Any]) -> Dict[str, Any]:
+    """Run readiness on a copy and return patch keys only (safe for parallel fan-out)."""
+    s = copy.deepcopy(base)
+    run_readiness_agent(s)
+    patch: Dict[str, Any] = {}
+    if "readiness_signal" in s:
+        patch["readiness_signal"] = s["readiness_signal"]
+    ra = s.get("agent_runs", {})
+    if "readiness_agent" in ra:
+        patch["agent_runs"] = {"readiness_agent": ra["readiness_agent"]}
+    bt = base.get("traces") or []
+    st = s.get("traces") or []
+    if len(st) > len(bt):
+        patch["traces"] = st
+    if s.get("errors"):
+        patch["errors"] = s.get("errors", [])
+    return patch
+
+
+def _merge_specialist_patches(
+    working_state: Dict[str, Any],
+    profile_patch: Dict[str, Any],
+    rag_patch: Dict[str, Any],
+    readiness_patch: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Merge parallel agent outputs without losing agent_runs / traces."""
+    merged: Dict[str, Any] = {}
+    for p in (profile_patch, rag_patch, readiness_patch):
+        for k, v in p.items():
+            if k in ("agent_runs", "traces"):
+                continue
+            merged[k] = v
+    merged["agent_runs"] = {
+        **working_state.get("agent_runs", {}),
+        **profile_patch.get("agent_runs", {}),
+        **rag_patch.get("agent_runs", {}),
+        **readiness_patch.get("agent_runs", {}),
+    }
+    traces = list(working_state.get("traces") or [])
+    for p in (profile_patch, rag_patch, readiness_patch):
+        if p.get("traces"):
+            t = p["traces"]
+            if len(t) > len(traces):
+                traces = t
+    merged["traces"] = traces
+    errs = list(working_state.get("errors") or [])
+    for p in (profile_patch, rag_patch, readiness_patch):
+        if p.get("errors"):
+            for e in p["errors"]:
+                if e not in errs:
+                    errs.append(e)
+    if errs:
+        merged["errors"] = errs
+    return merged
+
+
+async def _run_specialists_parallel(
+    working_state: Dict[str, Any], requested: List[str]
+) -> Dict[str, Any]:
+    """
+    Fan-out: profile, RAG, readiness in parallel (each sees a deep copy of base state).
+    """
+
+    async def _profile_coro() -> Dict[str, Any]:
+        if "profile" not in requested:
+            return {}
+        return await profile_agent_node(copy.deepcopy(working_state))
+
+    def _rag_sync() -> Dict[str, Any]:
+        if "rag" not in requested:
+            return {}
+        return rag_agent(copy.deepcopy(working_state))
+
+    def _readiness_sync() -> Dict[str, Any]:
+        if "readiness" not in requested:
+            return {}
+        return _run_readiness_patch(copy.deepcopy(working_state))
+
+    profile_patch, rag_patch, readiness_patch = await asyncio.gather(
+        _profile_coro(),
+        asyncio.to_thread(_rag_sync),
+        asyncio.to_thread(_readiness_sync),
+    )
+    return _merge_specialist_patches(working_state, profile_patch, rag_patch, readiness_patch)
 
 
 def _merge_outputs(state: Dict[str, Any]) -> Dict[str, Any]:
