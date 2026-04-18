@@ -1,6 +1,9 @@
 from typing import Dict, List, Any
 from langchain_groq import ChatGroq
 import json
+from json import JSONDecodeError
+
+from ai.state.agent_context import AgentContext
 
 
 # LLM
@@ -72,6 +75,63 @@ TEACHING PROFILE (adapt style only; do not invent facts—use CONTEXT for all su
 """
 
 
+def _readiness_adaptation_block(state: AgentContext) -> str:
+    """Steer workload/tone based on readiness signal."""
+    readiness = state.get("readiness_signal") or {}
+    if not readiness:
+        return ""
+
+    reason = (readiness.get("reasoning_summary") or "").strip()
+    if len(reason) > 400:
+        reason = reason[:400] + "..."
+
+    return f"""
+READINESS SIGNAL (adapt teaching load and tone):
+- Recommended intensity: {readiness.get("recommended_intensity", "normal")}
+- Suggested session minutes: {readiness.get("suggested_session_minutes", 30)}
+- Difficulty adjustment: {readiness.get("difficulty_adjustment", "keep")}
+- Break recommendation: {readiness.get("break_recommendation", False)}
+- Support tone: {readiness.get("support_tone", "neutral")}
+{f"- Notes: {reason}" if reason else ""}
+"""
+
+
+def _derive_behavior_settings(state: AgentContext) -> Dict[str, Any]:
+    """Derive final behavior controls from energy + readiness signals."""
+    energy = state.get("energy_decision") or {}
+    readiness = state.get("readiness_signal") or {}
+
+    energy_mode = energy.get("mode", "balanced")
+    difficulty = "medium"
+    if energy_mode == "light":
+        difficulty = "easy"
+    elif energy_mode == "deep":
+        difficulty = "hard"
+
+    difficulty_adj = readiness.get("difficulty_adjustment")
+    if difficulty_adj == "decrease":
+        difficulty = "easy"
+    elif difficulty_adj == "increase":
+        difficulty = "hard"
+
+    support_tone = readiness.get("support_tone", "neutral")
+    style_hint = {
+        "supportive": "Use empathetic and encouraging language.",
+        "challenging": "Use direct coaching language with stretch prompts.",
+    }.get(support_tone, "Use neutral, clear, and concise language.")
+
+    suggested_minutes = readiness.get("suggested_session_minutes", 30)
+    break_needed = readiness.get("break_recommendation", False)
+
+    return {
+        "difficulty": difficulty,
+        "support_tone": support_tone,
+        "style_hint": style_hint,
+        "suggested_minutes": suggested_minutes,
+        "break_needed": break_needed,
+    }
+
+
 def build_prompt(state: dict) -> str:
 
     query = state.get("query", "")
@@ -82,16 +142,12 @@ def build_prompt(state: dict) -> str:
 
     context = build_context(chunks)
     profile_block = _profile_adaptation_block(state)
-
-    # -------- Adaptive difficulty --------
-    energy = state.get("energy_decision", {})
-    mode = energy.get("mode", "balanced")
-
-    difficulty = "medium"
-    if mode == "light":
-        difficulty = "easy"
-    elif mode == "deep":
-        difficulty = "hard"
+    readiness_block = _readiness_adaptation_block(state)
+    behavior = _derive_behavior_settings(state)
+    difficulty = behavior["difficulty"]
+    style_hint = behavior["style_hint"]
+    suggested_minutes = behavior["suggested_minutes"]
+    break_needed = behavior["break_needed"]
 
     # -------- Intent-based behavior --------
     if intent == "practice":
@@ -140,6 +196,11 @@ STRICT RULES:
 - Do NOT use outside knowledge
 - If not found, say: "I don't know based on the course material"
 {profile_block}
+{readiness_block}
+BEHAVIOR RULES:
+- {style_hint}
+- Target response depth appropriate for a {suggested_minutes}-minute study session.
+- {"Include a short break reminder at the end." if break_needed else "No break reminder needed unless user asks."}
 
 CONVERSATION SUMMARY:
 {summary}
@@ -188,7 +249,7 @@ def parse_output(answer: str, intent: str) -> Dict[str, Any]:
                 "answer_type": "exercise",
                 "content": json.loads(answer)
             }
-        except:
+        except JSONDecodeError:
             return {
                 "answer_type": "exercise",
                 "content": answer
@@ -236,11 +297,12 @@ Updated summary (keep it short and focused on learning progress):
 # LEARNING AGENT NODE
 
 
-def learning_agent(state: dict) -> dict:
+def learning_agent(state: AgentContext) -> AgentContext:
 
     try:
         chunks = state.get("retrieved_chunks", [])
         intent = state.get("routing", {}).get("intent", "learn_concept")
+        behavior = _derive_behavior_settings(state)
 
         if not chunks:
             return {
@@ -307,7 +369,7 @@ def learning_agent(state: dict) -> dict:
             "response_draft": {
                 "answer_type": parsed["answer_type"],
                 "structure": "contextual_rag",
-                "tone": "adaptive",
+                "tone": behavior["support_tone"],
             },
 
             "agent_runs": {

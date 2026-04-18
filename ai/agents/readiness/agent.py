@@ -6,6 +6,7 @@ from .rules import (
     build_reasoning_summary,
     choose_intensity,
     compute_risk_flags,
+    derive_adaptation_controls,
     select_top_risk_flags,
     to_band,
 )
@@ -40,6 +41,10 @@ def run_readiness_agent(state: AgentContext) -> AgentContext:
             behavioral_fatigue_band=behavioral_fatigue_band,
         )
 
+        difficulty_adjustment, break_recommendation, support_tone = derive_adaptation_controls(
+            recommended_intensity
+        )
+
         risk_flags = compute_risk_flags(
             data=data,
             workload_pressure_score=workload_pressure_score,
@@ -70,6 +75,9 @@ def run_readiness_agent(state: AgentContext) -> AgentContext:
             behavioral_fatigue_band=behavioral_fatigue_band,
             recommended_intensity=recommended_intensity,
             suggested_session_minutes=suggested_session_minutes,
+            difficulty_adjustment=difficulty_adjustment,
+            break_recommendation=break_recommendation,
+            support_tone=support_tone,
             risk_flags=risk_flags,
             top_risk_flags=top_risk_flags,
             reasoning_summary=reasoning_summary,
@@ -101,6 +109,9 @@ def run_readiness_agent(state: AgentContext) -> AgentContext:
                 },
                 "recommended_intensity": recommended_intensity,
                 "suggested_session_minutes": suggested_session_minutes,
+                "difficulty_adjustment": difficulty_adjustment,
+                "break_recommendation": break_recommendation,
+                "support_tone": support_tone,
                 "risk_flags": risk_flags,
                 "top_risk_flags": top_risk_flags,
             }

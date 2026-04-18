@@ -59,6 +59,10 @@ def test_readiness_agent_returns_signal():
 
     assert "recommended_intensity" in signal
     assert "suggested_session_minutes" in signal
+    assert "difficulty_adjustment" in signal
+    assert "break_recommendation" in signal
+    assert "support_tone" in signal
+
     assert "risk_flags" in signal
     assert "top_risk_flags" in signal
     assert "reasoning_summary" in signal
@@ -106,6 +110,8 @@ def test_readiness_agent_detects_high_pressure_case():
     assert signal["performance_trend_band"] in ["medium", "high"]
     assert signal["behavioral_fatigue_band"] in ["medium", "high"]
     assert signal["recommended_intensity"] in ["light", "recovery_light"]
+    assert signal["difficulty_adjustment"] == "decrease"
+    assert signal["support_tone"] == "supportive"
 
 
 def test_readiness_agent_detects_stable_case():
@@ -130,3 +136,4 @@ def test_readiness_agent_detects_stable_case():
 
     assert signal["recommended_intensity"] in ["normal", "full"]
     assert signal["workload_pressure_band"] == "low"
+    assert signal["support_tone"] in ["neutral", "challenging"]
