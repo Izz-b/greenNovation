@@ -4,9 +4,9 @@ import os
 
 from dotenv import load_dotenv
 
-# =========================
+
 # ENV + LANGSMITH
-# =========================
+
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
@@ -15,36 +15,25 @@ os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_PROJECT"] = "edu-ai-hackathon"
 
 from langsmith import traceable
+from ai.agents.profile.schema import ProfileInference
 from ai.graph.learning_workflow import build_learning_graph
 
 
-# =========================
+
 # INITIAL STATE (PERSISTENT)
-# =========================
 
 state = {
     "session_history": [],
     "conversation_summary": "",
 
-    # 🔋 Energy Agent Output (simulated)
-    "energy_decision": {
-        "mode": "balanced",
-        "max_tokens": 400,
-        "temperature": 0.3,
-        "use_rag": True,
-        "top_k": 5,
-        "chunk_truncation_chars": 600,
-        "generate_quiz": True,
-        "include_sources": True,
-        "response_depth": "medium"
-    },
+  
 
-    # 🧠 Readiness
+    # 🧠 Readiness (used by energy agent)
     "readiness_signal": {
         "behavioral_fatigue_band": "low"
     },
 
-    # 📅 Calendar for planner
+    # 📅 Calendar (for planner later)
     "calendar_events": [
         {
             "title": "Math exam",
@@ -65,9 +54,9 @@ state = {
 }
 
 
-# =========================
+
 # TEST SCENARIO
-# =========================
+
 
 queries = [
     ("learn_concept", "What is a decorator in python?"),
@@ -77,18 +66,17 @@ queries = [
 ]
 
 
-# =========================
+
 # TRACEABLE EXECUTION
-# =========================
+
 
 @traceable(name="learning_session")
 async def run_graph(graph, state):
     return await graph.ainvoke(state)
 
 
-# =========================
 # MAIN LOOP
-# =========================
+
 
 async def main():
     global state
@@ -103,40 +91,18 @@ async def main():
         print(f"\n👉 Turn {i+1}")
 
         # -------------------------
-        # ENERGY MODE SIMULATION
+        # SIMULATE FATIGUE (for energy agent)
         # -------------------------
         if i == 1:
-            print("⚡ Switching to LIGHT mode")
-            state["energy_decision"].update({
-                "mode": "light",
-                "max_tokens": 150,
-                "generate_quiz": False,
-                "include_sources": False,
-                "response_depth": "short",
-                "top_k": 3
-            })
+            print("⚡ Simulating HIGH fatigue → should trigger LIGHT mode")
+            state["readiness_signal"]["behavioral_fatigue_band"] = "high"
 
         elif i == 2:
-            print("⚖️ Switching to BALANCED mode")
-            state["energy_decision"].update({
-                "mode": "balanced",
-                "max_tokens": 400,
-                "generate_quiz": True,
-                "include_sources": True,
-                "response_depth": "medium",
-                "top_k": 5
-            })
+            print("⚖️ Simulating LOW fatigue → balanced mode")
+            state["readiness_signal"]["behavioral_fatigue_band"] = "low"
 
         elif i == 3:
-            print("🔥 Switching to DEEP mode")
-            state["energy_decision"].update({
-                "mode": "deep",
-                "max_tokens": 700,
-                "generate_quiz": True,
-                "include_sources": True,
-                "response_depth": "long",
-                "top_k": 8
-            })
+            print("🔥 Long query → should trigger DEEP mode")
 
         # -------------------------
         # USER INPUT
@@ -150,7 +116,7 @@ async def main():
         state["routing"] = {"intent": intent}
 
         # -------------------------
-        # RUN GRAPH
+        # RUN GRAPH (ONLY ONCE)
         # -------------------------
         try:
             state = await run_graph(graph, state)
@@ -172,41 +138,62 @@ async def main():
             print(result)
 
         # -------------------------
-        # DEBUG / OBSERVABILITY
+        # PROFILE DEBUG
         # -------------------------
-        print("\n--- ENERGY ---")
+        print("\n--- PROFILE ---")
+        print(state.get("agent_runs", {}).get("profile_agent", {}))
+
+        raw_pv = state.get("profile_vector") or {}
+        try:
+            profile_obj = ProfileInference.model_validate(raw_pv)
+            print("\n--- ProfileInference ---")
+            print(profile_obj.model_dump_json(indent=2))
+        except Exception as e:
+            print("\n--- ProfileInference (raw dict) ---", e)
+            print(json.dumps(raw_pv, indent=2, ensure_ascii=False))
+
+        # -------------------------
+        # ENERGY DEBUG (KEY PART)
+        # -------------------------
+        print("\n--- ENERGY DECISION ---")
         print(json.dumps(state.get("energy_decision", {}), indent=2))
 
+        print("\n--- ENERGY META ---")
+        print(state.get("agent_runs", {}).get("energy_agent", {}))
+
+        # -------------------------
+        # RAG DEBUG
+        # -------------------------
         print("\n--- RAG META ---")
         print(state.get("agent_runs", {}).get("rag_agent", {}))
+        print("Retrieved Chunks:", len(state.get("retrieved_chunks", [])))
 
+        # -------------------------
+        # LEARNING DEBUG
+        # -------------------------
         print("\n--- LEARNING META ---")
         print(state.get("agent_runs", {}).get("learning_agent", {}))
 
-        print("\n--- PLANNER META ---")
-        print(state.get("agent_runs", {}).get("planning_agent", {}))
-
+        # -------------------------
+        # SUMMARY + MEMORY
+        # -------------------------
         print("\n--- SUMMARY ---")
         print(state.get("conversation_summary"))
 
         print("\n--- HISTORY LEN ---")
         print(len(state.get("session_history", [])))
 
-        print("\n--- PLANNER OUTPUT ---")
-        planning = state.get("planning_task")
-        if planning:
-            print(json.dumps(planning, indent=2))
-        else:
-            print("No plan generated")
-
+        # -------------------------
+        # RESPONSE LENGTH
+        # -------------------------
         if isinstance(result, str):
             print("\n--- RESPONSE LENGTH ---")
             print(len(result))
 
 
-# =========================
+
 # ENTRY POINT
-# =========================
+
 
 if __name__ == "__main__":
     asyncio.run(main())
