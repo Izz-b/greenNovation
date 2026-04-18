@@ -4,21 +4,30 @@ import os
 
 from dotenv import load_dotenv
 
+
+# ENV + LANGSMITH
+
+
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
+# Enable LangSmith tracing
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_PROJECT"] = "edu-ai-hackathon"
+
+from langsmith import traceable
 from ai.agents.profile.schema import ProfileInference
 from ai.graph.learning_workflow import build_learning_graph
 
 
-# =========================
-# INITIAL STATE (persistent)
-# =========================
+
+# INITIAL STATE (PERSISTENT)
 
 state = {
     "session_history": [],
     "conversation_summary": "",
     # energy_decision is set each turn by energy_agent (after readiness)
 
+<<<<<<< HEAD
     "passive_behavior_signals": {
         "tasks_due_3d": 2,
         "overdue_tasks": 0,
@@ -30,6 +39,29 @@ state = {
         "long_sessions_without_breaks": 0,
     },
 
+=======
+  
+
+    # 🧠 Readiness (used by energy agent)
+    "readiness_signal": {
+        "behavioral_fatigue_band": "low"
+    },
+
+    # 📅 Calendar (for planner later)
+    "calendar_events": [
+        {
+            "title": "Math exam",
+            "date": "2026-04-20",
+            "priority": "high"
+        },
+        {
+            "title": "AI project deadline",
+            "date": "2026-04-22",
+            "priority": "high"
+        }
+    ],
+
+>>>>>>> f6810fd72b1e0d5019d02d47bdc888fc57277223
     "course_context": {},
     "agent_runs": {},
     "errors": [],
@@ -37,14 +69,15 @@ state = {
 }
 
 
-# =========================
-# CONVERSATION TEST
-# =========================
+
+# TEST SCENARIO
+
 
 queries = [
     ("learn_concept", "What is a decorator in python?"),
     ("practice", "Give me exercises on it"),
     ("revise", "Now help me revise it"),
+<<<<<<< HEAD
     ("learn_concept", "Explain it deeply with examples"),  # deep case
 ]
 
@@ -93,12 +126,23 @@ readiness_scenarios = [
         "late_night_activity_ratio": 0.2,
         "long_sessions_without_breaks": 1,
     },
+=======
+    ("learn_concept", "Explain it deeply with examples"),
+>>>>>>> f6810fd72b1e0d5019d02d47bdc888fc57277223
 ]
 
 
-# =========================
-# MAIN
-# =========================
+
+# TRACEABLE EXECUTION
+
+
+@traceable(name="learning_session")
+async def run_graph(graph, state):
+    return await graph.ainvoke(state)
+
+
+# MAIN LOOP
+
 
 async def main():
     global state
@@ -110,7 +154,25 @@ async def main():
 
     for i, (intent, query) in enumerate(queries):
 
+<<<<<<< HEAD
         print(f"\nTurn {i+1}")
+=======
+        print(f"\n👉 Turn {i+1}")
+
+        # -------------------------
+        # SIMULATE FATIGUE (for energy agent)
+        # -------------------------
+        if i == 1:
+            print("⚡ Simulating HIGH fatigue → should trigger LIGHT mode")
+            state["readiness_signal"]["behavioral_fatigue_band"] = "high"
+
+        elif i == 2:
+            print("⚖️ Simulating LOW fatigue → balanced mode")
+            state["readiness_signal"]["behavioral_fatigue_band"] = "low"
+
+        elif i == 3:
+            print("🔥 Long query → should trigger DEEP mode")
+>>>>>>> f6810fd72b1e0d5019d02d47bdc888fc57277223
 
         # -------------------------
         # USER INPUT
@@ -124,18 +186,14 @@ async def main():
         state["routing"] = {"intent": intent}
         state["passive_behavior_signals"] = readiness_scenarios[min(i, len(readiness_scenarios) - 1)]
 
-        state = await graph.ainvoke(state)
-
-        print("Profile agent:", state.get("agent_runs", {}).get("profile_agent", {}))
-        raw_pv = state.get("profile_vector") or {}
+        # -------------------------
+        # RUN GRAPH (ONLY ONCE)
+        # -------------------------
         try:
-            profile_obj = ProfileInference.model_validate(raw_pv)
-            print("\n--- ProfileInference ---")
-            print(profile_obj.model_dump_json(indent=2))
+            state = await run_graph(graph, state)
         except Exception as e:
-            print("\n--- ProfileInference (raw dict; validate failed) ---", e)
-            print(json.dumps(raw_pv, indent=2, ensure_ascii=False))
-        print("Retrieved Chunks:", len(state.get("retrieved_chunks", [])))
+            print("❌ ERROR during graph execution:", str(e))
+            break
 
         result = state.get("final_response")
 
@@ -151,8 +209,9 @@ async def main():
             print(result)
 
         # -------------------------
-        # DEBUG INFO
+        # PROFILE DEBUG
         # -------------------------
+<<<<<<< HEAD
         print("\n--- PASSIVE BEHAVIOR (readiness input) ---")
         print(json.dumps(state.get("passive_behavior_signals", {}), indent=2))
 
@@ -169,26 +228,62 @@ async def main():
         slim["retrieved_chunk_count"] = len(bundle.get("retrieved_chunks") or [])
         print(json.dumps(slim, indent=2, default=str))
 
+=======
+        print("\n--- PROFILE ---")
+        print(state.get("agent_runs", {}).get("profile_agent", {}))
+
+        raw_pv = state.get("profile_vector") or {}
+        try:
+            profile_obj = ProfileInference.model_validate(raw_pv)
+            print("\n--- ProfileInference ---")
+            print(profile_obj.model_dump_json(indent=2))
+        except Exception as e:
+            print("\n--- ProfileInference (raw dict) ---", e)
+            print(json.dumps(raw_pv, indent=2, ensure_ascii=False))
+
+        # -------------------------
+        # ENERGY DEBUG (KEY PART)
+        # -------------------------
+        print("\n--- ENERGY DECISION ---")
+        print(json.dumps(state.get("energy_decision", {}), indent=2))
+
+        print("\n--- ENERGY META ---")
+        print(state.get("agent_runs", {}).get("energy_agent", {}))
+
+        # -------------------------
+        # RAG DEBUG
+        # -------------------------
+>>>>>>> f6810fd72b1e0d5019d02d47bdc888fc57277223
         print("\n--- RAG META ---")
         print(state.get("agent_runs", {}).get("rag_agent", {}))
+        print("Retrieved Chunks:", len(state.get("retrieved_chunks", [])))
 
+        # -------------------------
+        # LEARNING DEBUG
+        # -------------------------
         print("\n--- LEARNING META ---")
         print(state.get("agent_runs", {}).get("learning_agent", {}))
 
+        # -------------------------
+        # SUMMARY + MEMORY
+        # -------------------------
         print("\n--- SUMMARY ---")
         print(state.get("conversation_summary"))
 
         print("\n--- HISTORY LEN ---")
         print(len(state.get("session_history", [])))
 
+        # -------------------------
+        # RESPONSE LENGTH
+        # -------------------------
         if isinstance(result, str):
             print("\n--- RESPONSE LENGTH ---")
             print(len(result))
 
 
-# =========================
+
 # ENTRY POINT
-# =========================
+
 
 if __name__ == "__main__":
     asyncio.run(main())

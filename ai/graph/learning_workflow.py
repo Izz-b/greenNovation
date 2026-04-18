@@ -18,6 +18,10 @@ from ai.agents.rag.agent import rag_agent
 from ai.agents.readiness.agent import run_readiness_agent
 
 
+# =========================
+# STEPS
+# =========================
+
 async def profile_step(state: Dict[str, Any]) -> Dict[str, Any]:
     patch = await profile_agent_node(state)
     return {**state, **patch}
@@ -66,6 +70,10 @@ def learning_step(state: Dict[str, Any]) -> Dict[str, Any]:
     return {**state, **learning_agent(state)}
 
 
+# =========================
+# DEBUG PIPELINE (optional)
+# =========================
+
 async def run_learning_pipeline(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     Same sequence as the compiled LangGraph, without the graph runtime.
@@ -79,8 +87,13 @@ async def run_learning_pipeline(state: Dict[str, Any]) -> Dict[str, Any]:
     return state
 
 
+# =========================
+# GRAPH BUILDER
+# =========================
+
 def build_learning_graph():
     graph = StateGraph(dict)
+
     graph.add_node("profile", profile_step)
     graph.add_node("readiness", readiness_step)
     graph.add_node("energy", energy_step)
@@ -95,4 +108,5 @@ def build_learning_graph():
     graph.add_edge("rag", "merge")
     graph.add_edge("merge", "learning")
     graph.add_edge("learning", END)
+
     return graph.compile()

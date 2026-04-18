@@ -6,9 +6,7 @@ from json import JSONDecodeError
 from ai.state.agent_context import AgentContext
 
 
-# =========================
 # LLM (ENERGY-AWARE)
-# =========================
 
 def get_llm(energy: dict):
     return ChatGroq(
@@ -18,9 +16,8 @@ def get_llm(energy: dict):
     )
 
 
-# =========================
 # CONTEXT BUILDER
-# =========================
+
 
 MAX_CHARS = 800
 
@@ -37,9 +34,9 @@ def build_context(chunks: List[Dict], max_chars: int) -> str:
     return context
 
 
-# =========================
+
 # HISTORY BUILDER
-# =========================
+
 
 def build_history(session_history: List[Dict], max_turns: int = 5) -> str:
     history = ""
@@ -51,9 +48,9 @@ def build_history(session_history: List[Dict], max_turns: int = 5) -> str:
     return history
 
 
-# =========================
+
 # PROFILE ADAPTATION
-# =========================
+
 
 def _profile_adaptation_block(state: dict) -> str:
     pv = state.get("profile_vector") or {}
@@ -158,9 +155,8 @@ def build_prompt(state: dict) -> str:
     suggested_minutes = behavior["suggested_minutes"]
     break_needed = behavior["break_needed"]
 
-    # =========================
     # ENERGY CONTROLS
-    # =========================
+
 
     mode = energy.get("mode", "balanced")
     generate_quiz = energy.get("generate_quiz", True)
@@ -175,9 +171,9 @@ def build_prompt(state: dict) -> str:
     else:
         length_instruction = "Provide a balanced explanation."
 
-    # =========================
+
     # TASK LOGIC
-    # =========================
+ 
 
     if intent == "practice" and generate_quiz:
         task_instruction = f"""
@@ -255,9 +251,8 @@ ANSWER:
 """
 
 
-# =========================
 # SOURCE FORMATTER
-# =========================
+
 
 def format_sources(chunks: List[Dict]) -> List[str]:
     seen = set()
@@ -272,9 +267,9 @@ def format_sources(chunks: List[Dict]) -> List[str]:
     return sources
 
 
-# =========================
+
 # OUTPUT PARSER
-# =========================
+
 
 def parse_output(answer: str, intent: str) -> Dict[str, Any]:
 
@@ -299,9 +294,7 @@ def parse_output(answer: str, intent: str) -> Dict[str, Any]:
     return {"answer_type": "explanation", "content": answer}
 
 
-# =========================
 # SUMMARY UPDATE (OPTIMIZED)
-# =========================
 
 def update_conversation_summary(llm, previous_summary: str, new_turn: str) -> str:
     prompt = f"""
@@ -319,9 +312,7 @@ Updated summary (short, focused on learning progress):
     return response.content.strip()
 
 
-# =========================
 # LEARNING AGENT NODE
-# =========================
 
 def learning_agent(state: AgentContext) -> AgentContext:
 
