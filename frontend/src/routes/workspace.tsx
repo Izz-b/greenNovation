@@ -1,22 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppLayout } from "@/components/AppLayout";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   FileText,
-  Highlighter,
   Sparkles,
   ListChecks,
   MessageCircleQuestion,
   Send,
-  X,
   BookOpen,
   Upload,
-  PanelRightOpen,
   ChevronDown,
   ChevronRight,
   FolderOpen,
   Folder,
+  MessagesSquare,
 } from "lucide-react";
+import { materials, type Chapter } from "@/data/chapters";
+import { RichContent } from "@/components/RichContent";
+import { PdfViewer } from "@/components/PdfViewer";
+import { StudyNotifications } from "@/components/StudyNotifications";
+import { ChatBubble, TypingDots } from "@/components/FloatingBamboo";
 
 export const Route = createFileRoute("/workspace")({
   head: () => ({
@@ -41,42 +44,29 @@ export const Route = createFileRoute("/workspace")({
   ),
 });
 
-type Chapter = { id: string; name: string; pages: number };
-type Material = { id: string; name: string; chapters: Chapter[] };
+type ChatMessage = { id: string; role: "user" | "bamboo"; text: string; streaming?: boolean };
 
-const materials: Material[] = [
-  {
-    id: "linalg",
-    name: "Linear Algebra",
-    chapters: [
-      { id: "la-1", name: "Ch. 1 — Vectors & Spaces.pdf", pages: 12 },
-      { id: "la-2", name: "Ch. 2 — Linear Maps.pdf", pages: 18 },
-      { id: "la-3", name: "Ch. 3 — Eigenvectors.pdf", pages: 14 },
-      { id: "la-4", name: "Ch. 4 — Diagonalization.pdf", pages: 9 },
-    ],
-  },
-  {
-    id: "ml",
-    name: "Machine Learning",
-    chapters: [
-      { id: "ml-1", name: "Ch. 1 — Intro & Setup.pdf", pages: 10 },
-      { id: "ml-2", name: "Ch. 2 — Linear Regression.pdf", pages: 22 },
-      { id: "ml-3", name: "Ch. 3 — Neural Networks.pdf", pages: 28 },
-    ],
-  },
-  {
-    id: "physics",
-    name: "Thermodynamics",
-    chapters: [
-      { id: "ph-1", name: "Ch. 1 — Heat & Temperature.pdf", pages: 15 },
-      { id: "ph-2", name: "Ch. 2 — Laws of Thermo.pdf", pages: 20 },
-    ],
-  },
+const CHAT_SUGGESTIONS = [
+  "Explain this concept simply",
+  "Give me an example",
+  "Summarize this page",
 ];
 
+function fakeReply(prompt: string, chapter?: Chapter): string {
+  const p = prompt.toLowerCase();
+  const topic = chapter?.name.replace(/^Ch\.\s*\d+\s*—\s*/, "") ?? "this material";
+  if (p.includes("simply") || p.includes("simple"))
+    return `Sure! ${topic} in plain words: it's about how a transformation acts on space — some directions only get stretched, others get rotated. The "stretch-only" directions are the special ones.`;
+  if (p.includes("example"))
+    return `Imagine spinning a globe. The axis going through the poles is the eigenvector — every other point rotates, but the poles stay still and only "stretch" along the axis. That's the geometric idea.`;
+  if (p.includes("summar"))
+    return `Quick summary of ${topic}:\n• Eigenvectors are directions a linear map only scales.\n• Eigenvalues come from solving det(A − λI) = 0.\n• A diagonalizable matrix has a full eigenbasis.`;
+  return `Great question. In the context of ${topic}, the short answer is: yes — and the reason is that the determinant condition forces a non-trivial null space, which is exactly where eigenvectors live.`;
+}
+
 function WorkspacePage() {
-  const [panelOpen, setPanelOpen] = useState(false);
   const [tab, setTab] = useState<"summary" | "quiz" | "explain">("summary");
+  const [view, setView] = useState<"reader" | "chat">("reader");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     linalg: true,
     ml: false,
@@ -84,30 +74,97 @@ function WorkspacePage() {
   });
   const [activeChapter, setActiveChapter] = useState<string>("la-3");
 
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
   const toggle = (id: string) => setExpanded((e) => ({ ...e, [id]: !e[id] }));
 
   const currentChapter = materials
     .flatMap((m) => m.chapters.map((c) => ({ ...c, material: m.name })))
     .find((c) => c.id === activeChapter);
 
+  useEffect(() => {
+    if (view === "chat") {
+      chatScrollRef.current?.scrollTo({
+        top: chatScrollRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, [messages, thinking, view]);
+
+  const sendChat = (textArg?: string) => {
+    const text = (textArg ?? chatInput).trim();
+    if (!text) return;
+    setView("chat");
+    setMessages((m) => [...m, { id: crypto.randomUUID(), role: "user", text }]);
+    setChatInput("");
+    setThinking(true);
+
+    setTimeout(() => {
+      const reply = fakeReply(text, currentChapter);
+      const id = crypto.randomUUID();
+      setThinking(false);
+      setMessages((m) => [...m, { id, role: "bamboo", text: "", streaming: true }]);
+      const words = reply.split(" ");
+      let i = 0;
+      const interval = setInterval(() => {
+        i++;
+        setMessages((m) =>
+          m.map((msg) =>
+            msg.id === id
+              ? { ...msg, text: words.slice(0, i).join(" "), streaming: i < words.length }
+              : msg,
+          ),
+        );
+        if (i >= words.length) clearInterval(interval);
+      }, 50);
+    }, 850);
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto">
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-primary font-semibold mb-1">
+      <div className="flex items-center justify-between mb-3 gap-4">
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-primary font-semibold">
             Workspace
           </div>
-          <h1 className="font-display text-2xl lg:text-3xl font-bold">
-            {currentChapter ? `${currentChapter.material} · ${currentChapter.name.replace(".pdf", "")}` : "Workspace"}
+          <h1 className="font-display text-lg lg:text-xl font-bold truncate leading-tight">
+            {currentChapter
+              ? `${currentChapter.material} · ${currentChapter.name}`
+              : "Workspace"}
           </h1>
         </div>
-        <button
-          onClick={() => setPanelOpen(true)}
-          className="inline-flex items-center gap-2 rounded-xl bg-card border border-border px-3.5 py-2 text-sm font-semibold hover:bg-muted transition shadow-card"
-        >
-          <PanelRightOpen className="h-4 w-4" />
-          Ask Bamboo
-        </button>
+
+        {/* Reader / Chat toggle */}
+        <div className="flex p-1 bg-muted rounded-2xl shrink-0">
+          <button
+            onClick={() => setView("reader")}
+            className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+              view === "reader"
+                ? "bg-card shadow-card text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <BookOpen className="h-3.5 w-3.5" /> Reader
+          </button>
+          <button
+            onClick={() => setView("chat")}
+            className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+              view === "chat"
+                ? "bg-card shadow-card text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <MessagesSquare className="h-3.5 w-3.5" /> Chat
+            {messages.length > 0 && (
+              <span className="ml-0.5 h-4 min-w-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold grid place-items-center">
+                {messages.length}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-12 gap-5">
@@ -150,7 +207,10 @@ function WorkspacePage() {
                         return (
                           <li key={c.id}>
                             <button
-                              onClick={() => setActiveChapter(c.id)}
+                              onClick={() => {
+                                setActiveChapter(c.id);
+                                setView("reader");
+                              }}
                               className={`w-full text-left rounded-lg px-2.5 py-2 flex items-start gap-2 transition ${
                                 active
                                   ? "bg-primary/10 border border-primary/30"
@@ -162,9 +222,14 @@ function WorkspacePage() {
                                   active ? "text-primary" : "text-muted-foreground"
                                 }`}
                               />
-                              <div className="min-w-0">
+                              <div className="min-w-0 flex-1">
                                 <div className="text-xs font-medium truncate">{c.name}</div>
-                                <div className="text-[10px] text-muted-foreground">{c.pages} pages</div>
+                                <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+                                  <span>{c.pages} pages</span>
+                                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wider font-bold">
+                                    {c.kind === "pdf" ? "PDF" : c.kind === "mixed" ? "Mixed" : "Text"}
+                                  </span>
+                                </div>
                               </div>
                             </button>
                           </li>
@@ -178,42 +243,124 @@ function WorkspacePage() {
           </ul>
         </aside>
 
-        {/* Document reader */}
-        <section className="col-span-12 lg:col-span-6 rounded-3xl bg-card border border-border p-6 lg:p-8 shadow-card">
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-4">
-            <span className="inline-flex items-center gap-1.5">
-              <BookOpen className="h-3.5 w-3.5" /> Page 4 of {currentChapter?.pages ?? 14}
-            </span>
-            <button className="inline-flex items-center gap-1 rounded-lg bg-warning/15 text-warning-foreground px-2.5 py-1 font-semibold">
-              <Highlighter className="h-3 w-3" /> Highlight
-            </button>
-          </div>
-          <article className="prose prose-sm max-w-none">
-            <h2 className="font-display text-2xl font-bold mb-3">3.2 — Eigenvectors</h2>
-            <p className="text-foreground/90 leading-relaxed">
-              Given a square matrix <em>A</em>, a non-zero vector <em>v</em> is an{" "}
-              <span className="bg-warning/30 px-1 rounded">eigenvector</span> of <em>A</em> if{" "}
-              <em>Av = λv</em> for some scalar <em>λ</em>, called the corresponding eigenvalue.
-              Geometrically, eigenvectors are the directions that the linear map only stretches —
-              never rotates.
-            </p>
-            <p className="text-foreground/80 leading-relaxed mt-4">
-              The set of eigenvalues forms the spectrum of <em>A</em>. To find them we solve{" "}
-              <em>det(A − λI) = 0</em>, the characteristic polynomial. Each root gives an
-              eigenvalue, and the corresponding null space yields the eigenvectors.
-            </p>
-            <div className="mt-5 rounded-2xl bg-muted/60 p-4 border border-border">
-              <div className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-1">
-                Worked example
-              </div>
-              <p className="text-sm">
-                For <em>A = [[2,1],[0,3]]</em>, det(A−λI) = (2−λ)(3−λ) so λ ∈ &#123;2, 3&#125;.
-              </p>
-            </div>
-          </article>
-        </section>
+        {/* Reader / Chat panel + aligned sticky chat bar */}
+        <div className="col-span-12 lg:col-span-6 flex flex-col gap-2 h-[calc(100vh-9rem)]">
+          <section className="rounded-3xl bg-card border border-border shadow-card overflow-hidden flex flex-col flex-1 min-h-0">
+            {view === "reader" && currentChapter && (
+              <div className="p-6 lg:p-8 flex-1 overflow-y-auto">
+                <div className="flex items-center justify-between text-xs text-muted-foreground mb-4">
+                  <span className="inline-flex items-center gap-1.5">
+                    <BookOpen className="h-3.5 w-3.5" /> {currentChapter.pages} pages ·{" "}
+                    {currentChapter.kind === "pdf"
+                      ? "PDF document"
+                      : currentChapter.kind === "mixed"
+                        ? "Notes + PDF"
+                        : "Study notes"}
+                  </span>
+                </div>
 
-        {/* AI tools */}
+                {currentChapter.kind === "rich" && currentChapter.blocks && (
+                  <RichContent blocks={currentChapter.blocks} />
+                )}
+                {currentChapter.kind === "pdf" && currentChapter.pdfUrl && (
+                  <PdfViewer url={currentChapter.pdfUrl} />
+                )}
+                {currentChapter.kind === "mixed" && (
+                  <div className="space-y-6">
+                    {currentChapter.blocks && <RichContent blocks={currentChapter.blocks} />}
+                    {currentChapter.pdfUrl && (
+                      <div>
+                        <div className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground mb-2">
+                          Source paper
+                        </div>
+                        <PdfViewer url={currentChapter.pdfUrl} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {view === "chat" && (
+              <div className="flex flex-col h-full">
+                <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-widest font-bold text-primary">
+                      Chat · grounded in {currentChapter?.name ?? "your material"}
+                    </div>
+                    <div className="font-display text-lg font-bold">Discuss this chapter</div>
+                  </div>
+                  {messages.length > 0 && (
+                    <button
+                      onClick={() => setMessages([])}
+                      className="text-xs font-semibold text-muted-foreground hover:text-foreground"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-6 space-y-3 min-h-0">
+                  {messages.length === 0 && !thinking && (
+                    <div className="grid place-items-center h-full text-center text-sm text-muted-foreground py-12">
+                      <div>
+                        <MessagesSquare className="h-8 w-8 mx-auto mb-2 text-primary/50" />
+                        Ask anything about this chapter to get started.
+                      </div>
+                    </div>
+                  )}
+                  {messages.map((m) => (
+                    <ChatBubble key={m.id} role={m.role} text={m.text} streaming={m.streaming} />
+                  ))}
+                  {thinking && <TypingDots />}
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Chat bar — aligned under reader, compact */}
+          <div className="z-30">
+            <div className="rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-glow p-2">
+              {view === "chat" && (
+                <div className="flex gap-2 mb-2 overflow-x-auto px-1">
+                  {CHAT_SUGGESTIONS.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => sendChat(s)}
+                      className="shrink-0 text-[11px] font-medium rounded-full border border-border bg-muted/40 px-2.5 py-1 hover:border-primary/50 hover:bg-primary/5 transition"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  sendChat();
+                }}
+                className="flex items-center gap-2 rounded-xl border border-border bg-background px-2.5 py-1 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20 transition"
+              >
+                <MessagesSquare className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder={`Ask Bamboo about ${currentChapter?.name ?? "this material"}…`}
+                  className="flex-1 bg-transparent px-1 py-1 text-sm focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInput.trim()}
+                  aria-label="Send"
+                  className="h-7 w-7 rounded-lg gradient-primary grid place-items-center text-primary-foreground hover:scale-105 transition disabled:opacity-50"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        {/* AI tools + notifications */}
         <aside className="col-span-12 lg:col-span-3 space-y-4">
           <div className="rounded-3xl bg-card border border-border shadow-card overflow-hidden">
             <div className="flex p-1 bg-muted/60">
@@ -277,60 +424,10 @@ function WorkspacePage() {
             </div>
           </div>
 
-          <div className="rounded-3xl gradient-warm p-5 shadow-card">
-            <div className="text-xs font-bold uppercase tracking-wider text-accent-foreground mb-1">
-              Suggested study plan
-            </div>
-            <p className="text-sm font-medium">
-              25 min reading → 10 min quiz → 5 min recap. Repeat tomorrow.
-            </p>
-          </div>
+          <StudyNotifications />
         </aside>
       </div>
-
-      {/* Slide-in assistant */}
-      {panelOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm"
-            onClick={() => setPanelOpen(false)}
-          />
-          <aside className="fixed top-0 right-0 z-50 h-screen w-full sm:w-[420px] bg-card border-l border-border shadow-glow flex flex-col animate-[slide-in-right_0.3s_ease-out]">
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <div>
-                <div className="text-xs uppercase tracking-widest text-primary font-bold">
-                  Bamboo · grounded in your docs
-                </div>
-                <div className="font-display font-bold">Ask anything</div>
-              </div>
-              <button
-                onClick={() => setPanelOpen(false)}
-                className="rounded-lg p-2 hover:bg-muted"
-                aria-label="Close"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              <div className="rounded-2xl bg-muted/60 p-3 text-sm">
-                Hi! I can answer using <strong>{currentChapter?.name ?? "your chapter"}</strong> and your notes. Try “Why does
-                A−λI need to be singular?”
-              </div>
-            </div>
-            <div className="p-4 border-t border-border">
-              <div className="flex items-center gap-2 rounded-2xl border border-border bg-background p-2">
-                <input
-                  className="flex-1 bg-transparent px-2 py-1.5 text-sm focus:outline-none"
-                  placeholder="Ask about this material..."
-                />
-                <button className="h-9 w-9 rounded-xl gradient-primary grid place-items-center text-primary-foreground">
-                  <Send className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          </aside>
-        </>
-      )}
     </div>
   );
 }
+

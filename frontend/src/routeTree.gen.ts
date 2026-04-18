@@ -14,6 +14,7 @@ import { Route as WellbeingRouteImport } from './routes/wellbeing'
 import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as LearningRouteImport } from './routes/learning'
 import { Route as ForestRouteImport } from './routes/forest'
+import { Route as CalendarRouteImport } from './routes/calendar'
 import { Route as IndexRouteImport } from './routes/index'
 
 const WorkspaceRoute = WorkspaceRouteImport.update({
@@ -41,6 +42,11 @@ const ForestRoute = ForestRouteImport.update({
   path: '/forest',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CalendarRoute = CalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -49,6 +55,7 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/calendar': typeof CalendarRoute
   '/forest': typeof ForestRoute
   '/learning': typeof LearningRoute
   '/projects': typeof ProjectsRoute
@@ -57,6 +64,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/calendar': typeof CalendarRoute
   '/forest': typeof ForestRoute
   '/learning': typeof LearningRoute
   '/projects': typeof ProjectsRoute
@@ -66,6 +74,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/calendar': typeof CalendarRoute
   '/forest': typeof ForestRoute
   '/learning': typeof LearningRoute
   '/projects': typeof ProjectsRoute
@@ -76,16 +85,25 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/calendar'
     | '/forest'
     | '/learning'
     | '/projects'
     | '/wellbeing'
     | '/workspace'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/forest' | '/learning' | '/projects' | '/wellbeing' | '/workspace'
+  to:
+    | '/'
+    | '/calendar'
+    | '/forest'
+    | '/learning'
+    | '/projects'
+    | '/wellbeing'
+    | '/workspace'
   id:
     | '__root__'
     | '/'
+    | '/calendar'
     | '/forest'
     | '/learning'
     | '/projects'
@@ -95,6 +113,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CalendarRoute: typeof CalendarRoute
   ForestRoute: typeof ForestRoute
   LearningRoute: typeof LearningRoute
   ProjectsRoute: typeof ProjectsRoute
@@ -139,6 +158,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ForestRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/calendar': {
+      id: '/calendar'
+      path: '/calendar'
+      fullPath: '/calendar'
+      preLoaderRoute: typeof CalendarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -151,6 +177,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CalendarRoute: CalendarRoute,
   ForestRoute: ForestRoute,
   LearningRoute: LearningRoute,
   ProjectsRoute: ProjectsRoute,
