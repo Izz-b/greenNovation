@@ -6,37 +6,40 @@ from json import JSONDecodeError
 from ai.state.agent_context import AgentContext
 
 
-# LLM
+# =========================
+# LLM (ENERGY-AWARE)
+# =========================
 
-
-def get_llm():
+def get_llm(energy: dict):
     return ChatGroq(
         model="llama-3.1-8b-instant",
-        temperature=0.3
+        temperature=energy.get("temperature", 0.3),
+        max_tokens=energy.get("max_tokens", 500)
     )
 
 
-# Context Builder
-
+# =========================
+# CONTEXT BUILDER
+# =========================
 
 MAX_CHARS = 800
 
-def build_context(chunks: List[Dict]) -> str:
+def build_context(chunks: List[Dict], max_chars: int) -> str:
     context = ""
 
     for i, c in enumerate(chunks):
         source = c.get("source_id", "unknown")
         page = c.get("metadata", {}).get("page", "?")
-        content = c.get("content", "")[:MAX_CHARS]
+        content = c.get("content", "")[:max_chars]
 
         context += f"[{i+1}] ({source}, p.{page})\n{content}\n\n"
 
     return context
 
 
-
-# History Builder
-
+# =========================
+# HISTORY BUILDER
+# =========================
 
 def build_history(session_history: List[Dict], max_turns: int = 5) -> str:
     history = ""
@@ -48,12 +51,11 @@ def build_history(session_history: List[Dict], max_turns: int = 5) -> str:
     return history
 
 
-
-# Prompt Builder
-
+# =========================
+# PROFILE ADAPTATION
+# =========================
 
 def _profile_adaptation_block(state: dict) -> str:
-    """Steer tone/pace/format from profile_agent; facts still come only from CONTEXT."""
     pv = state.get("profile_vector") or {}
     if not pv:
         return ""
@@ -61,16 +63,17 @@ def _profile_adaptation_block(state: dict) -> str:
     tags = pv.get("adaptation_tags") or []
     tags_s = ", ".join(tags) if tags else "none"
     reason = (pv.get("reasoning_summary") or "").strip()
+
     if len(reason) > 400:
         reason = reason[:400] + "…"
 
     return f"""
-TEACHING PROFILE (adapt style only; do not invent facts—use CONTEXT for all substantive claims):
+TEACHING STYLE (adapt tone/format only):
 - Explanation style: {pv.get("preferred_explanation_style", "balanced")}
-- Preferred format: {pv.get("preferred_format", "clear")}
+- Format: {pv.get("preferred_format", "clear")}
 - Examples domain: {pv.get("preferred_examples_domain", "general")}
 - Pace: {pv.get("pace", "medium")}
-- Adaptation tags: {tags_s}
+- Tags: {tags_s}
 {f"- Notes: {reason}" if reason else ""}
 """
 
@@ -140,7 +143,13 @@ def build_prompt(state: dict) -> str:
     summary = state.get("conversation_summary", "")
     history = build_history(state.get("session_history", []))
 
-    context = build_context(chunks)
+    energy = state.get("energy_decision", {})
+
+    context = build_context(
+        chunks,
+        energy.get("chunk_truncation_chars", MAX_CHARS)
+    )
+
     profile_block = _profile_adaptation_block(state)
     readiness_block = _readiness_adaptation_block(state)
     behavior = _derive_behavior_settings(state)
@@ -149,8 +158,28 @@ def build_prompt(state: dict) -> str:
     suggested_minutes = behavior["suggested_minutes"]
     break_needed = behavior["break_needed"]
 
-    # -------- Intent-based behavior --------
-    if intent == "practice":
+    # =========================
+    # ENERGY CONTROLS
+    # =========================
+
+    mode = energy.get("mode", "balanced")
+    generate_quiz = energy.get("generate_quiz", True)
+    depth = energy.get("response_depth", "medium")
+
+
+    # response length
+    if depth == "short":
+        length_instruction = "Keep the answer VERY concise."
+    elif depth == "long":
+        length_instruction = "Provide a detailed explanation."
+    else:
+        length_instruction = "Provide a balanced explanation."
+
+    # =========================
+    # TASK LOGIC
+    # =========================
+
+    if intent == "practice" and generate_quiz:
         task_instruction = f"""
 Generate EXACTLY 3 questions.
 
@@ -169,6 +198,11 @@ Rules:
 - No extra text
 """
 
+    elif intent == "practice" and not generate_quiz:
+        task_instruction = """
+Explain the concept instead of generating questions (energy-saving mode).
+"""
+
     elif intent == "revise":
         task_instruction = """
 Provide:
@@ -184,9 +218,7 @@ Provide:
 """
 
     else:
-        task_instruction = """
-Provide a clear explanation with examples.
-"""
+        task_instruction = "Provide a clear explanation with examples."
 
     return f"""
 You are an academic assistant.
@@ -195,6 +227,7 @@ STRICT RULES:
 - Use ONLY the provided context
 - Do NOT use outside knowledge
 - If not found, say: "I don't know based on the course material"
+
 {profile_block}
 {readiness_block}
 BEHAVIOR RULES:
@@ -208,6 +241,8 @@ CONVERSATION SUMMARY:
 RECENT HISTORY:
 {history}
 
+{length_instruction}
+
 {task_instruction}
 
 CONTEXT:
@@ -220,9 +255,9 @@ ANSWER:
 """
 
 
-
-# Source Formatter
-
+# =========================
+# SOURCE FORMATTER
+# =========================
 
 def format_sources(chunks: List[Dict]) -> List[str]:
     seen = set()
@@ -237,9 +272,9 @@ def format_sources(chunks: List[Dict]) -> List[str]:
     return sources
 
 
-
-# Output Parser
-
+# =========================
+# OUTPUT PARSER
+# =========================
 
 def parse_output(answer: str, intent: str) -> Dict[str, Any]:
 
@@ -256,26 +291,17 @@ def parse_output(answer: str, intent: str) -> Dict[str, Any]:
             }
 
     elif intent == "revise":
-        return {
-            "answer_type": "summary_with_questions",
-            "content": answer
-        }
+        return {"answer_type": "summary_with_questions", "content": answer}
 
     elif intent == "mixed":
-        return {
-            "answer_type": "explanation_with_questions",
-            "content": answer
-        }
+        return {"answer_type": "explanation_with_questions", "content": answer}
 
-    return {
-        "answer_type": "explanation",
-        "content": answer
-    }
+    return {"answer_type": "explanation", "content": answer}
 
 
-
-# Conversation Summary Updater
-
+# =========================
+# SUMMARY UPDATE (OPTIMIZED)
+# =========================
 
 def update_conversation_summary(llm, previous_summary: str, new_turn: str) -> str:
     prompt = f"""
@@ -287,15 +313,15 @@ Previous summary:
 New interaction:
 {new_turn}
 
-Updated summary (keep it short and focused on learning progress):
+Updated summary (short, focused on learning progress):
 """
     response = llm.invoke(prompt)
     return response.content.strip()
 
 
-
+# =========================
 # LEARNING AGENT NODE
-
+# =========================
 
 def learning_agent(state: AgentContext) -> AgentContext:
 
@@ -303,7 +329,9 @@ def learning_agent(state: AgentContext) -> AgentContext:
         chunks = state.get("retrieved_chunks", [])
         intent = state.get("routing", {}).get("intent", "learn_concept")
         behavior = _derive_behavior_settings(state)
+        energy = state.get("energy_decision", {})
 
+        # ---- fallback ----
         if not chunks:
             return {
                 "final_response": "I couldn't find this in your course material.",
@@ -313,7 +341,7 @@ def learning_agent(state: AgentContext) -> AgentContext:
                 }
             }
 
-        llm = get_llm()
+        llm = get_llm(energy)
         prompt = build_prompt(state)
 
         response = llm.invoke(prompt)
@@ -322,16 +350,26 @@ def learning_agent(state: AgentContext) -> AgentContext:
         parsed = parse_output(answer, intent)
         sources = format_sources(chunks)
 
-        # ---- format response ----
+        include_sources = energy.get("include_sources", True)
+
+        # =========================
+        # FINAL RESPONSE
+        # =========================
+
         if intent == "practice" and isinstance(parsed["content"], list):
             final_response = parsed["content"]
             assistant_text = json.dumps(final_response)
+
         else:
-            final_response = parsed["content"] + "\n\nSources:\n" + "\n".join(sources)
+            if include_sources:
+                final_response = parsed["content"] + "\n\nSources:\n" + "\n".join(sources)
+            else:
+                final_response = parsed["content"]
+
             assistant_text = final_response
 
         # =========================
-        # UPDATE MEMORY
+        # MEMORY UPDATE
         # =========================
 
         session_history = state.get("session_history", [])
@@ -346,20 +384,29 @@ def learning_agent(state: AgentContext) -> AgentContext:
             "content": assistant_text
         })
 
-        # Trim history
-        MAX_HISTORY = 10
-        session_history = session_history[-MAX_HISTORY:]
+        session_history = session_history[-10:]
 
-        # ---- update summary ----
+        # =========================
+        # SUMMARY UPDATE (ENERGY-AWARE)
+        # =========================
+
         previous_summary = state.get("conversation_summary", "")
 
-        new_turn = f"User: {state.get('query')} \nAssistant: {assistant_text}"
-
-        updated_summary = update_conversation_summary(
-            llm,
-            previous_summary,
-            new_turn
+        should_update_summary = (
+            energy.get("mode") != "light" and
+            len(session_history) % 4 == 0
         )
+
+        if should_update_summary:
+            new_turn = f"User: {state.get('query')} \nAssistant: {assistant_text}"
+
+            updated_summary = update_conversation_summary(
+                llm,
+                previous_summary,
+                new_turn
+            )
+        else:
+            updated_summary = previous_summary
 
         return {
             "final_response": final_response,
@@ -374,7 +421,10 @@ def learning_agent(state: AgentContext) -> AgentContext:
 
             "agent_runs": {
                 **state.get("agent_runs", {}),
-                "learning_agent": {"status": "success"}
+                "learning_agent": {
+                    "status": "success",
+                    "mode": energy.get("mode", "balanced")
+                }
             }
         }
 
