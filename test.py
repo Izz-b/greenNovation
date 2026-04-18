@@ -1,11 +1,12 @@
-from dotenv import load_dotenv
-import os
+import asyncio
 import json
+import os
+
+from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-from ai.agents.rag.agent import rag_agent
-from ai.agents.learning.agent import learning_agent
+from ai.graph.learning_workflow import build_learning_graph
 
 
 # INITIAL STATE (persistent)
@@ -15,14 +16,13 @@ state = {
     "conversation_summary": "",
 
     "energy_decision": {"mode": "balanced"},
-    "profile_vector": {"preferred_explanation_style": "simple"},
     "readiness_signal": {"behavioral_fatigue_band": "low"},
 
     "course_context": {},
     "agent_runs": {},
-    "errors": []
+    "errors": [],
+    "traces": [],
 }
-
 
 
 # CONVERSATION TEST
@@ -31,49 +31,44 @@ queries = [
     ("learn_concept", "What is a decorator in python?"),
     ("learn_concept", "Can you explain it more simply?"),
     ("practice", "Give me exercises on it"),
-    ("revise", "Now help me revise it")
+    ("revise", "Now help me revise it"),
 ]
 
 
-for intent, query in queries:
+async def main():
+    global state
+    graph = build_learning_graph()
 
-    print("\n==============================")
-    print(f"USER: {query}")
-    print(f"INTENT: {intent}")
-    print("==============================\n")
+    for intent, query in queries:
+        print("\n==============================")
+        print(f"USER: {query}")
+        print(f"INTENT: {intent}")
+        print("==============================\n")
 
-    # update state
-    state["query"] = query
-    state["routing"] = {"intent": intent}
+        state["query"] = query
+        state["routing"] = {"intent": intent}
 
-    # -------------------------
-    # RAG
-    # -------------------------
-    state = {**state, **rag_agent(state)}
+        state = await graph.ainvoke(state)
 
-    print("Retrieved Chunks:", len(state.get("retrieved_chunks", [])))
+        print("Profile agent:", state.get("agent_runs", {}).get("profile_agent", {}))
+        print("Retrieved Chunks:", len(state.get("retrieved_chunks", [])))
 
-    # -------------------------
-    # LEARNING AGENT
-    # -------------------------
-    state = {**state, **learning_agent(state)}
+        result = state.get("final_response")
 
-    result = state.get("final_response")
+        print("\nASSISTANT:\n")
 
-    print("\nASSISTANT:\n")
+        if isinstance(result, list):
+            print("📚 Quiz Output:\n")
+            print(json.dumps(result, indent=2))
+        else:
+            print(result)
 
-    # handle JSON quiz
-    if isinstance(result, list):
-        print("📚 Quiz Output:\n")
-        print(json.dumps(result, indent=2))
-    else:
-        print(result)
+        print("\n--- Conversation Summary ---")
+        print(state.get("conversation_summary"))
 
-    # -------------------------
-    # DEBUG MEMORY
-    # -------------------------
-    print("\n--- Conversation Summary ---")
-    print(state.get("conversation_summary"))
+        print("\n--- History Length ---")
+        print(len(state.get("session_history", [])))
 
-    print("\n--- History Length ---")
-    print(len(state.get("session_history", [])))
+
+if __name__ == "__main__":
+    asyncio.run(main())

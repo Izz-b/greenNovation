@@ -49,6 +49,29 @@ def build_history(session_history: List[Dict], max_turns: int = 5) -> str:
 # Prompt Builder
 
 
+def _profile_adaptation_block(state: dict) -> str:
+    """Steer tone/pace/format from profile_agent; facts still come only from CONTEXT."""
+    pv = state.get("profile_vector") or {}
+    if not pv:
+        return ""
+
+    tags = pv.get("adaptation_tags") or []
+    tags_s = ", ".join(tags) if tags else "none"
+    reason = (pv.get("reasoning_summary") or "").strip()
+    if len(reason) > 400:
+        reason = reason[:400] + "…"
+
+    return f"""
+TEACHING PROFILE (adapt style only; do not invent facts—use CONTEXT for all substantive claims):
+- Explanation style: {pv.get("preferred_explanation_style", "balanced")}
+- Preferred format: {pv.get("preferred_format", "clear")}
+- Examples domain: {pv.get("preferred_examples_domain", "general")}
+- Pace: {pv.get("pace", "medium")}
+- Adaptation tags: {tags_s}
+{f"- Notes: {reason}" if reason else ""}
+"""
+
+
 def build_prompt(state: dict) -> str:
 
     query = state.get("query", "")
@@ -58,6 +81,7 @@ def build_prompt(state: dict) -> str:
     history = build_history(state.get("session_history", []))
 
     context = build_context(chunks)
+    profile_block = _profile_adaptation_block(state)
 
     # -------- Adaptive difficulty --------
     energy = state.get("energy_decision", {})
@@ -115,6 +139,7 @@ STRICT RULES:
 - Use ONLY the provided context
 - Do NOT use outside knowledge
 - If not found, say: "I don't know based on the course material"
+{profile_block}
 
 CONVERSATION SUMMARY:
 {summary}
