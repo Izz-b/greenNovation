@@ -246,23 +246,11 @@ async def orchestrator_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         working_state = {**state, **updates}
         requested = execution_plan["requested_agents"]
 
-        # 2) CONDITIONAL AGENTS BASED ON ENERGY
-        if "profile" in requested:
-            profile_patch = await profile_agent_node(working_state)
-            updates.update(profile_patch)
-            working_state = {**working_state, **profile_patch}
+        # 2) PARALLEL FAN-OUT: profile, RAG, readiness (after energy), then merge patches
+        specialist_patch = await _run_specialists_parallel(working_state, requested)
+        updates.update(specialist_patch)
 
-        if "rag" in requested:
-            rag_patch = rag_agent(working_state)
-            updates.update(rag_patch)
-            working_state = {**working_state, **rag_patch}
-
-        if "readiness" in requested:
-            readiness_patch = run_readiness_agent(working_state)
-            updates.update(readiness_patch)
-            working_state = {**working_state, **readiness_patch}
-
-        # 3) MERGE
+        # 3) MERGE orchestrator bundle
         merged_patch = _merge_outputs({**state, **updates})
         updates.update(merged_patch)
 
