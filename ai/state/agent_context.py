@@ -110,29 +110,17 @@ class ProfileVector(TypedDict, total=False):
 
 
 class PassiveBehaviorSignals(TypedDict, total=False):
-    # 1) workload pressure
     tasks_due_3d: int
     overdue_tasks: int
-    active_projects_count: int
     project_risk_level: Literal["low", "medium", "high"]
-    missed_tasks_last_7d: int
 
-    # 2) study stability
     study_sessions_last_7d: int
-    avg_session_completion_rate: float      # 0.0 -> 1.0
-    inactivity_days: int
-    engagement_drop_ratio: float            # 0.0 -> 1.0
+    avg_session_completion_rate: float
 
-    # 3) performance trend
     avg_quiz_score_trend: float
-    weak_topic_repetition: int
-    progress_velocity_drop: float           # 0.0 -> 1.0
 
-    # 4) behavioral fatigue
-    late_night_activity_ratio: float        # 0.0 -> 1.0
+    late_night_activity_ratio: float
     long_sessions_without_breaks: int
-    stagnation_days: int
-    reschedule_count_last_7d: int
 
 
 class ReadinessSignal(TypedDict, total=False):
