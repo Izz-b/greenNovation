@@ -10,10 +10,6 @@ from ai.agents.profile.schema import ProfileInference
 from ai.graph.learning_workflow import build_learning_graph
 
 
-# =========================
-# INITIAL STATE (persistent)
-# =========================
-
 state = {
     "session_history": [],
     "conversation_summary": "",
@@ -36,40 +32,29 @@ state = {
     "agent_runs": {},
     "errors": [],
     "traces": [],
+    "warnings": [],
 }
 
-
-# =========================
-# CONVERSATION TEST
-# =========================
 
 queries = [
     ("learn_concept", "What is a decorator in python?"),
     ("practice", "Give me exercises on it"),
     ("revise", "Now help me revise it"),
-    ("learn_concept", "Explain it deeply with examples"),  # 🔥 added deep case
+    ("learn_concept", "Explain it deeply with examples"),
 ]
 
-
-# =========================
-# MAIN
-# =========================
 
 async def main():
     global state
 
-    print("🚀 Starting test...\n")
+    print("🚀 Starting orchestrated test...\n")
 
     graph = build_learning_graph()
     print("✅ Graph built\n")
 
     for i, (intent, query) in enumerate(queries):
-
         print(f"\n👉 Turn {i+1}")
 
-        # -------------------------
-        # SIMULATE ENERGY CHANGES
-        # -------------------------
         if i == 1:
             print("⚡ Switching to LIGHT mode")
             state["energy_decision"].update({
@@ -103,9 +88,6 @@ async def main():
                 "top_k": 8
             })
 
-        # -------------------------
-        # USER INPUT
-        # -------------------------
         print("\n==============================")
         print(f"USER: {query}")
         print(f"INTENT: {intent}")
@@ -116,7 +98,13 @@ async def main():
 
         state = await graph.ainvoke(state)
 
+        print("Orchestrator:", state.get("agent_runs", {}).get("orchestrator", {}))
         print("Profile agent:", state.get("agent_runs", {}).get("profile_agent", {}))
+        print("RAG agent:", state.get("agent_runs", {}).get("rag_agent", {}))
+        print("Readiness agent:", state.get("agent_runs", {}).get("readiness_agent", {}))
+        print("Energy agent:", state.get("agent_runs", {}).get("energy_agent", {}))
+        print("Learning agent:", state.get("agent_runs", {}).get("learning_agent", {}))
+
         raw_pv = state.get("profile_vector") or {}
         try:
             profile_obj = ProfileInference.model_validate(raw_pv)
@@ -125,32 +113,25 @@ async def main():
         except Exception as e:
             print("\n--- ProfileInference (raw dict; validate failed) ---", e)
             print(json.dumps(raw_pv, indent=2, ensure_ascii=False))
-        print("Retrieved Chunks:", len(state.get("retrieved_chunks", [])))
 
-        result = state.get("final_response")
+        print("\n--- ROUTING ---")
+        print(json.dumps(state.get("routing", {}), indent=2))
 
-        # -------------------------
-        # OUTPUT
-        # -------------------------
+        print("\n--- MERGED SIGNAL BUNDLE ---")
+        print(json.dumps(state.get("merged_signal_bundle", {}), indent=2, ensure_ascii=False))
+
+        print("\n--- RESPONSE DRAFT ---")
+        print(json.dumps(state.get("response_draft", {}), indent=2, ensure_ascii=False))
+
         print("\nASSISTANT:\n")
-
+        result = state.get("final_response")
         if isinstance(result, list):
-            print("📚 Quiz Output:\n")
             print(json.dumps(result, indent=2))
         else:
             print(result)
 
-        # -------------------------
-        # DEBUG INFO
-        # -------------------------
         print("\n--- ENERGY ---")
         print(json.dumps(state.get("energy_decision", {}), indent=2))
-
-        print("\n--- RAG META ---")
-        print(state.get("agent_runs", {}).get("rag_agent", {}))
-
-        print("\n--- LEARNING META ---")
-        print(state.get("agent_runs", {}).get("learning_agent", {}))
 
         print("\n--- SUMMARY ---")
         print(state.get("conversation_summary"))
@@ -158,14 +139,13 @@ async def main():
         print("\n--- HISTORY LEN ---")
         print(len(state.get("session_history", [])))
 
+        print("\n--- WARNINGS ---")
+        print(json.dumps(state.get("warnings", []), indent=2, ensure_ascii=False))
+
         if isinstance(result, str):
             print("\n--- RESPONSE LENGTH ---")
             print(len(result))
 
-
-# =========================
-# ENTRY POINT
-# =========================
 
 if __name__ == "__main__":
     asyncio.run(main())
