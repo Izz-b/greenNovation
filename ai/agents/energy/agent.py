@@ -33,8 +33,11 @@ def _base_decision(
 
 def energy_agent(state: dict) -> dict:
     """
-    Energy-aware settings for RAG + learning, using readiness + intent + query.
-    Produces a full energy_decision dict consumed by rag_agent and learning_agent.
+    Energy-aware settings for RAG + learning, using intent + query + optional readiness.
+
+    When the orchestrator runs energy *before* readiness in the same request,
+    `readiness_signal` is usually empty: fatigue defaults apply for that turn.
+    Readiness from a *previous* turn (carried in state) is still used when present.
     """
     query = state.get("query", "")
     intent = (state.get("routing") or {}).get("intent", "learn_concept")

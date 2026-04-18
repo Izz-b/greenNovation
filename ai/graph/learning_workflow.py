@@ -1,13 +1,11 @@
 """
-LangGraph: orchestrator → learning.
+LangGraph: orchestrator → learning [→ planning when session ends].
 
-The orchestrator classifies intent, runs energy (first), then conditionally runs
-profile, RAG, and readiness, and merges context for the learning step
-(see `ai.agents.orchestrator.agent`).
+Inside the orchestrator: intent → energy → parallel fan-out (profile, RAG,
+readiness) → merge bundle → return. See `ai.agents.orchestrator.agent`.
 
-The compiled graph only needs two nodes: specialist work runs inside the
-orchestrator; the learning node produces the final response. This matches
-`ai.agents.orchestrator.graph` and avoids double-invoking agents.
+The outer graph keeps specialist work inside one orchestrator node so agents
+are not double-invoked; the learning node produces the user-facing reply.
 """
 
 from __future__ import annotations
