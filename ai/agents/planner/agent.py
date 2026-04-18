@@ -1,6 +1,7 @@
 from typing import Dict, List, Any
 from langchain_groq import ChatGroq
 import json
+from datetime import datetime
 
 # LLM
 
@@ -35,7 +36,7 @@ def build_planner_prompt(state: dict) -> str:
 
     energy = state.get("energy_decision", {})
     readiness = state.get("readiness_signal", {})
-    calendar = state.get("planning_task", {}).get("calendar", {})
+    calendar = state.get("calendar_events", [])
 
     fatigue = readiness.get("behavioral_fatigue_band", "low")
     mode = energy.get("mode", "balanced")
@@ -85,6 +86,32 @@ Calendar:
     
 
 
+
+def should_run_planner(state: dict) -> bool:
+    """
+    Run planner only:
+    - Once per day
+    - OR when explicitly forced (for testing)
+    """
+
+    today = datetime.utcnow().date()
+
+    planner_state = state.get("planner_state", {})
+    last_date = planner_state.get("last_generated_date")
+
+    # 🧪 Allow manual override (for testing)
+    if state.get("force_planner", False):
+        return True
+
+    # First time ever → run
+    if last_date is None:
+        return True
+
+    last_date = datetime.fromisoformat(last_date).date()
+
+    # Run only if new day
+    return today > last_date
+
 # OUTPUT PARSER
 
 def parse_planner_output(text: str) -> Dict[str, Any]:
@@ -101,14 +128,38 @@ def parse_planner_output(text: str) -> Dict[str, Any]:
 
 # PLANNER AGENT NODE
 
+
+
+
 def planning_agent(state: dict) -> dict:
     """
-    Creates study plan based on learning + energy + calendar.
+    Runs once per day AFTER meaningful learning.
     """
 
     try:
-        llm = get_llm()
+        meta = state.get("planner_meta", {
+            "last_generated_date": None,
+            "turns_since_last_plan": 0
+        })
 
+        # Increment turns
+        meta["turns_since_last_plan"] = meta.get("turns_since_last_plan", 0) + 1
+
+        # Decide if planner should run
+        if not should_run_planner({**state, "planner_meta": meta}):
+            return {
+                "planner_meta": meta,
+                "agent_runs": {
+                    **state.get("agent_runs", {}),
+                    "planning_agent": {
+                        "status": "skipped",
+                        "reason": "Not end of session or already generated today"
+                    }
+                }
+            }
+
+        # ✅ RUN PLANNER
+        llm = get_llm()
         prompt = build_planner_prompt(state)
 
         response = llm.invoke(prompt)
@@ -116,8 +167,13 @@ def planning_agent(state: dict) -> dict:
 
         parsed = parse_planner_output(raw_output)
 
+        # Update meta
+        meta["last_generated_date"] = datetime.now().date().isoformat()
+        meta["turns_since_last_plan"] = 0
+
         return {
             "planning_task": parsed,
+            "planner_meta": meta,
 
             "agent_runs": {
                 **state.get("agent_runs", {}),
