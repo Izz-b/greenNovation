@@ -32,6 +32,20 @@ def build_context(chunks: List[Dict]) -> str:
 
 
 
+# History Builder
+
+
+def build_history(session_history: List[Dict], max_turns: int = 5) -> str:
+    history = ""
+    for turn in session_history[-max_turns:]:
+        role = turn.get("role", "user")
+        content = turn.get("content", "")
+        prefix = "User" if role == "user" else "Assistant"
+        history += f"{prefix}: {content}\n"
+    return history
+
+
+
 # Prompt Builder
 
 
@@ -40,6 +54,8 @@ def build_prompt(state: dict) -> str:
     query = state.get("query", "")
     intent = state.get("routing", {}).get("intent", "learn_concept")
     chunks = state.get("retrieved_chunks", [])
+    summary = state.get("conversation_summary", "")
+    history = build_history(state.get("session_history", []))
 
     context = build_context(chunks)
 
@@ -58,7 +74,7 @@ def build_prompt(state: dict) -> str:
         task_instruction = f"""
 Generate EXACTLY 3 questions.
 
-Return ONLY valid JSON (no text before or after):
+Return ONLY valid JSON:
 
 [
   {{
@@ -70,9 +86,7 @@ Return ONLY valid JSON (no text before or after):
 
 Rules:
 - Use ONLY the context
-- Do NOT add explanations
-- Do NOT add markdown
-- Do NOT add comments
+- No extra text
 """
 
     elif intent == "revise":
@@ -89,7 +103,7 @@ Provide:
 2. 2 practice questions with answers
 """
 
-    else:  # learn_concept
+    else:
         task_instruction = """
 Provide a clear explanation with examples.
 """
@@ -100,15 +114,20 @@ You are an academic assistant.
 STRICT RULES:
 - Use ONLY the provided context
 - Do NOT use outside knowledge
-- If the answer is not in the context, say:
-  "I don't know based on the course material"
+- If not found, say: "I don't know based on the course material"
+
+CONVERSATION SUMMARY:
+{summary}
+
+RECENT HISTORY:
+{history}
 
 {task_instruction}
 
 CONTEXT:
 {context}
 
-QUESTION:
+CURRENT QUESTION:
 {query}
 
 ANSWER:
@@ -140,15 +159,14 @@ def parse_output(answer: str, intent: str) -> Dict[str, Any]:
 
     if intent == "practice":
         try:
-            parsed_json = json.loads(answer)
             return {
                 "answer_type": "exercise",
-                "content": parsed_json
+                "content": json.loads(answer)
             }
         except:
             return {
                 "answer_type": "exercise",
-                "content": answer  # fallback if JSON breaks
+                "content": answer
             }
 
     elif intent == "revise":
@@ -163,11 +181,30 @@ def parse_output(answer: str, intent: str) -> Dict[str, Any]:
             "content": answer
         }
 
-    else:
-        return {
-            "answer_type": "explanation",
-            "content": answer
-        }
+    return {
+        "answer_type": "explanation",
+        "content": answer
+    }
+
+
+
+# Conversation Summary Updater
+
+
+def update_conversation_summary(llm, previous_summary: str, new_turn: str) -> str:
+    prompt = f"""
+Update the conversation summary.
+
+Previous summary:
+{previous_summary}
+
+New interaction:
+{new_turn}
+
+Updated summary (keep it short and focused on learning progress):
+"""
+    response = llm.invoke(prompt)
+    return response.content.strip()
 
 
 
@@ -175,23 +212,17 @@ def parse_output(answer: str, intent: str) -> Dict[str, Any]:
 
 
 def learning_agent(state: dict) -> dict:
-    """
-    Main generation agent (LLM call).
-    """
 
     try:
         chunks = state.get("retrieved_chunks", [])
         intent = state.get("routing", {}).get("intent", "learn_concept")
 
-        # ---- No context fallback ----
         if not chunks:
             return {
-                "final_response": "I couldn't find this in your course material. Try rephrasing your question.",
+                "final_response": "I couldn't find this in your course material.",
                 "agent_runs": {
                     **state.get("agent_runs", {}),
-                    "learning_agent": {
-                        "status": "no_context"
-                    }
+                    "learning_agent": {"status": "no_context"}
                 }
             }
 
@@ -204,14 +235,49 @@ def learning_agent(state: dict) -> dict:
         parsed = parse_output(answer, intent)
         sources = format_sources(chunks)
 
-        # ---- Format final response ----
+        # ---- format response ----
         if intent == "practice" and isinstance(parsed["content"], list):
-            final_response = parsed["content"]  # JSON → frontend handles it
+            final_response = parsed["content"]
+            assistant_text = json.dumps(final_response)
         else:
             final_response = parsed["content"] + "\n\nSources:\n" + "\n".join(sources)
+            assistant_text = final_response
+
+        # =========================
+        # UPDATE MEMORY
+        # =========================
+
+        session_history = state.get("session_history", [])
+
+        session_history.append({
+            "role": "user",
+            "content": state.get("query", "")
+        })
+
+        session_history.append({
+            "role": "assistant",
+            "content": assistant_text
+        })
+
+        # Trim history
+        MAX_HISTORY = 10
+        session_history = session_history[-MAX_HISTORY:]
+
+        # ---- update summary ----
+        previous_summary = state.get("conversation_summary", "")
+
+        new_turn = f"User: {state.get('query')} \nAssistant: {assistant_text}"
+
+        updated_summary = update_conversation_summary(
+            llm,
+            previous_summary,
+            new_turn
+        )
 
         return {
             "final_response": final_response,
+            "session_history": session_history,
+            "conversation_summary": updated_summary,
 
             "response_draft": {
                 "answer_type": parsed["answer_type"],
@@ -221,16 +287,14 @@ def learning_agent(state: dict) -> dict:
 
             "agent_runs": {
                 **state.get("agent_runs", {}),
-                "learning_agent": {
-                    "status": "success"
-                }
+                "learning_agent": {"status": "success"}
             }
         }
 
     except Exception as e:
         return {
-            "final_response": "Something went wrong while generating the answer.",
-            "errors": state.get("errors", []) + [f"learning_agent error: {str(e)}"],
+            "final_response": "Something went wrong.",
+            "errors": state.get("errors", []) + [str(e)],
             "agent_runs": {
                 **state.get("agent_runs", {}),
                 "learning_agent": {
