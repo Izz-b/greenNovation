@@ -3,6 +3,8 @@
 
 const INVENTORY_KEY = "ecolearn:treeInventory";
 const HISTORY_KEY = "ecolearn:treeHistory"; // dedupe daily/project rewards
+const SEED_KEY = "ecolearn:treeSeeded"; // tracks initial seed grant
+const INITIAL_TREES = 3;
 
 export type TreeReward = {
   id: string;
@@ -18,6 +20,12 @@ let lastReward: TreeReward | null = null;
 
 function read(): number {
   if (typeof window === "undefined") return 0;
+  // Seed initial inventory once per browser
+  if (!localStorage.getItem(SEED_KEY)) {
+    localStorage.setItem(INVENTORY_KEY, String(INITIAL_TREES));
+    localStorage.setItem(SEED_KEY, "1");
+    return INITIAL_TREES;
+  }
   const raw = localStorage.getItem(INVENTORY_KEY);
   const n = raw ? parseInt(raw, 10) : 0;
   return Number.isFinite(n) && n >= 0 ? n : 0;
