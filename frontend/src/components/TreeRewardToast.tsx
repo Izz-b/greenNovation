@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { ArrowRight, X, Sparkles } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { ArrowRight, X, Sparkles, Gift } from "lucide-react";
 import { Panda } from "@/components/PandaCompanion";
+import treeBamboo from "@/assets/tree-bamboo.png";
 import { useTreeInventory } from "@/hooks/useTreeInventory";
 import { clearLastReward, type TreeReward } from "@/lib/treeInventory";
 
@@ -31,99 +32,118 @@ function playChime() {
   }
 }
 
-const CONFETTI = ["🍃", "🌿", "✨", "🌱", "🍃", "✨"];
-
 export function TreeRewardToast() {
   const { lastReward } = useTreeInventory();
   const [active, setActive] = useState<TreeReward | null>(null);
-  const [leaving, setLeaving] = useState(false);
+  const navigate = useNavigate();
   const seenIds = useRef<Set<string>>(new Set());
-  const dismissTimer = useRef<number | null>(null);
 
   useEffect(() => {
     if (!lastReward) return;
     if (seenIds.current.has(lastReward.id)) return;
     seenIds.current.add(lastReward.id);
-    setLeaving(false);
     setActive(lastReward);
     playChime();
-    if (dismissTimer.current) window.clearTimeout(dismissTimer.current);
-    dismissTimer.current = window.setTimeout(() => dismiss(), 7000);
-    return () => {
-      if (dismissTimer.current) window.clearTimeout(dismissTimer.current);
-    };
   }, [lastReward]);
 
-  const dismiss = () => {
-    setLeaving(true);
-    window.setTimeout(() => {
-      setActive(null);
-      clearLastReward();
-    }, 350);
+  const close = (visit: boolean) => {
+    setActive(null);
+    clearLastReward();
+    if (visit) {
+      navigate({ to: "/forest", search: { reward: 1 } as never });
+    }
   };
 
   if (!active) return null;
 
+  // Daily rewards have their own dedicated DailyReward modal — don't double-show.
+  if (active.reason === "daily") return null;
+
+  const isProject = active.reason === "project";
+
   return (
-    <div
-      className="fixed bottom-6 right-6 z-[120] w-[340px] max-w-[calc(100vw-2rem)] pointer-events-none"
-      role="status"
-      aria-live="polite"
-    >
-      {/* confetti */}
-      <div className="absolute inset-x-0 -top-4 h-10 pointer-events-none overflow-visible">
-        {CONFETTI.map((c, i) => (
-          <span
-            key={i}
-            className="absolute text-lg"
-            style={{
-              left: `${10 + i * 14}%`,
-              animation: `confetti-burst 1.4s cubic-bezier(.2,.7,.4,1) ${i * 0.05}s forwards`,
-            }}
-          >
-            {c}
-          </span>
-        ))}
-      </div>
-
+    <div className="fixed inset-0 z-[110] grid place-items-center p-4 animate-[fade-in-up_0.3s_ease-out]">
       <div
-        className={`pointer-events-auto rounded-3xl bg-card border border-primary/30 shadow-glow overflow-hidden ${
-          leaving ? "animate-[reward-out_.35s_ease-in_forwards]" : "animate-[reward-in_.55s_cubic-bezier(.34,1.56,.64,1)_both]"
-        }`}
+        className="absolute inset-0 bg-foreground/40 backdrop-blur-md"
+        onClick={() => close(false)}
+      />
+      <div
+        className="relative w-full max-w-md rounded-3xl bg-card border border-primary/20 shadow-glow overflow-hidden animate-[tree-pop_0.7s_cubic-bezier(0.34,1.56,0.64,1)]"
+        role="status"
+        aria-live="polite"
       >
-        <div className="relative p-4 pr-3 flex gap-3">
-          {/* Decorative glow */}
-          <div className="absolute -top-8 -right-8 h-28 w-28 rounded-full bg-primary-glow/30 blur-2xl pointer-events-none" />
+        {/* Decorative gradient header */}
+        <div className="relative h-32 gradient-forest overflow-hidden">
+          <div className="absolute -top-10 -right-10 h-40 w-40 rounded-full bg-primary-glow/40 blur-3xl" />
+          <div className="absolute -bottom-6 -left-6 h-32 w-32 rounded-full bg-accent/40 blur-2xl" />
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="absolute text-xl animate-[leaf-fall_5s_ease-in-out_infinite]"
+              style={{
+                left: `${10 + i * 18}%`,
+                top: 0,
+                animationDelay: `${i * 0.6}s`,
+              }}
+            >
+              🍃
+            </div>
+          ))}
+          <div className="absolute inset-0 grid place-items-center">
+            <div className="relative">
+              <img
+                src={treeBamboo}
+                alt="Bamboo tree reward"
+                className="h-24 drop-shadow-xl animate-[float_4s_ease-in-out_infinite]"
+              />
+              <Sparkles className="absolute -top-2 -right-2 h-6 w-6 text-warning animate-[seed-sparkle_1.6s_ease-in-out_infinite]" />
+              <Sparkles
+                className="absolute -bottom-1 -left-3 h-4 w-4 text-primary animate-[seed-sparkle_1.6s_ease-in-out_infinite]"
+                style={{ animationDelay: "0.4s" }}
+              />
+            </div>
+          </div>
+          <button
+            onClick={() => close(false)}
+            aria-label="Close"
+            className="absolute top-3 right-3 h-8 w-8 grid place-items-center rounded-full bg-card/70 hover:bg-card transition"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
-          {/* Mascot */}
-          <div className="relative shrink-0">
-            <Panda mood="waving" size={56} />
-            <span className="absolute -bottom-1 -right-1 text-xl select-none">🌱</span>
-            <Sparkles className="absolute -top-1 -right-2 h-4 w-4 text-warning animate-[seed-sparkle_1.4s_ease-in-out_infinite]" />
+        <div className="p-6 text-center">
+          <div className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-full">
+            <Gift className="h-3 w-3" /> {isProject ? "Project complete" : "Tree earned"}
+          </div>
+          <h2 className="font-display text-2xl font-bold mt-3">
+            {isProject ? "You earned a bamboo tree! 🎋" : "New tree earned! 🌱"}
+          </h2>
+          <p className="text-sm text-muted-foreground mt-2 italic leading-relaxed">
+            "{active.message}"
+          </p>
+
+          <div className="flex items-center gap-3 mt-5 rounded-2xl bg-muted/60 p-3 text-left">
+            <Panda mood="waving" size={48} className="shrink-0" />
+            <p className="text-xs text-foreground/80 leading-snug">
+              Plant it in your Eco Forest and watch your hard work grow into something beautiful.
+            </p>
           </div>
 
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between gap-2">
-              <div className="font-display text-sm font-bold leading-tight">
-                🌱 New tree earned!
-              </div>
-              <button
-                onClick={dismiss}
-                aria-label="Dismiss"
-                className="shrink-0 -mt-1 -mr-1 rounded-full p-1 hover:bg-muted transition"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1 leading-snug">{active.message}</p>
-            <Link
-              to="/forest"
-              onClick={dismiss}
-              className="mt-2.5 inline-flex items-center gap-1.5 rounded-full gradient-primary text-primary-foreground px-3 py-1.5 text-xs font-bold shadow-soft hover:opacity-95 transition"
+          <div className="mt-5 flex flex-col sm:flex-row gap-2">
+            <button
+              onClick={() => close(false)}
+              className="flex-1 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold hover:bg-muted transition"
             >
-              Go to forest
-              <ArrowRight className="h-3 w-3" />
-            </Link>
+              Later
+            </button>
+            <button
+              onClick={() => close(true)}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl gradient-primary text-primary-foreground px-4 py-2.5 text-sm font-bold shadow-glow hover:opacity-95 transition"
+            >
+              Check your forest
+              <ArrowRight className="h-4 w-4" />
+            </button>
           </div>
         </div>
       </div>

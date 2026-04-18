@@ -17,6 +17,11 @@ import {
 import { DailyReward } from "@/components/DailyReward";
 import { FloatingBamboo } from "@/components/FloatingBamboo";
 import { TreeRewardToast } from "@/components/TreeRewardToast";
+import {
+  BreathingBreak,
+  BreathingBreakButton,
+  BreathingBreakIconButton,
+} from "@/components/BreathingBreak";
 import { CalendarDays } from "lucide-react";
 
 const navItems = [
@@ -32,6 +37,7 @@ const navItems = [
 export function AppLayout({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hoverExpanded, setHoverExpanded] = useState(false);
+  const [breakOpen, setBreakOpen] = useState(false);
   const { location } = useRouterState();
   const path = location.pathname;
 
@@ -162,6 +168,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 <Zap className="h-3.5 w-3.5" />
                 Eco mode
               </div>
+              <BreathingBreakButton onClick={() => setBreakOpen(true)} />
+              <BreathingBreakIconButton onClick={() => setBreakOpen(true)} />
               <button className="relative rounded-xl p-2.5 hover:bg-muted transition-colors">
                 <Bell className="h-5 w-5" />
                 <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-destructive ring-2 ring-background" />
@@ -179,6 +187,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <DailyReward />
       <FloatingBamboo />
       <TreeRewardToast />
+      <BreathingBreak open={breakOpen} onOpenChange={setBreakOpen} />
     </div>
   );
 }
