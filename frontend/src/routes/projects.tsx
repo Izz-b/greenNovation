@@ -14,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { awardTree } from "@/lib/treeInventory";
 
 export const Route = createFileRoute("/projects")({
   head: () => ({
@@ -115,16 +116,23 @@ function ProjectsPage() {
   const confirmToggle = () => {
     if (!pending) return;
     setProjects((ps) =>
-      ps.map((p) =>
-        p.id === pending.projectId
-          ? {
-              ...p,
-              milestones: p.milestones.map((m) =>
-                m.id === pending.milestoneId ? { ...m, done: pending.completing } : m,
-              ),
-            }
-          : p,
-      ),
+      ps.map((p) => {
+        if (p.id !== pending.projectId) return p;
+        const updatedMilestones = p.milestones.map((m) =>
+          m.id === pending.milestoneId ? { ...m, done: pending.completing } : m,
+        );
+        const wasComplete = p.milestones.every((m) => m.done);
+        const isComplete = updatedMilestones.every((m) => m.done);
+        if (!wasComplete && isComplete) {
+          // Award a tree exactly once per project completion.
+          awardTree(
+            "project",
+            `Project complete: "${p.name}" — you earned a bamboo tree! 🎋`,
+            `project-${p.id}`,
+          );
+        }
+        return { ...p, milestones: updatedMilestones };
+      }),
     );
     setPending(null);
   };

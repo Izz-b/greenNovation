@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field, field_validator
 RiskLevel = Literal["low", "medium", "high"]
 BandLevel = Literal["low", "medium", "high"]
 RecommendedIntensity = Literal["light", "normal", "full", "recovery_light"]
+DifficultyAdjustment = Literal["decrease", "keep", "increase"]
+SupportTone = Literal["supportive", "neutral", "challenging"]
 
 
 class ReadinessInput(BaseModel):
@@ -41,6 +43,11 @@ class ReadinessOutput(BaseModel):
 
     recommended_intensity: RecommendedIntensity
     suggested_session_minutes: int = Field(ge=10, le=90)
+
+    # MVP adaptation controls for Learning Plan agent
+    difficulty_adjustment: DifficultyAdjustment
+    break_recommendation: bool
+    support_tone: SupportTone
 
     risk_flags: List[str] = Field(default_factory=list)
     top_risk_flags: List[str] = Field(default_factory=list)

@@ -116,16 +116,24 @@ class ProfileVector(TypedDict, total=False):
     evidence: List[str]
 
 
+# =========================
+# Readiness agent
+# =========================
+
 class PassiveBehaviorSignals(TypedDict, total=False):
+    # workload pressure
     tasks_due_3d: int
     overdue_tasks: int
     project_risk_level: Literal["low", "medium", "high"]
 
+    # study stability
     study_sessions_last_7d: int
     avg_session_completion_rate: float
 
+    # performance trend
     avg_quiz_score_trend: float
 
+    # behavioral fatigue
     late_night_activity_ratio: float
     long_sessions_without_breaks: int
 
@@ -144,7 +152,13 @@ class ReadinessSignal(TypedDict, total=False):
     recommended_intensity: Literal["light", "normal", "full", "recovery_light"]
     suggested_session_minutes: int
 
+    # MVP adaptation controls for the Learning Plan agent
+    difficulty_adjustment: Literal["decrease", "keep", "increase"]
+    break_recommendation: bool
+    support_tone: Literal["supportive", "neutral", "challenging"]
+
     risk_flags: List[str]
+    top_risk_flags: List[str]
     reasoning_summary: str
 
 
@@ -200,9 +214,10 @@ class MergedSignalBundle(TypedDict, total=False):
     energy_mode: EnergyMode
     token_budget: int
 
-    overload_score: float
-    stability_score: float
-    fatigue_score: float
+    workload_pressure_score: float
+    study_stability_score: float
+    performance_trend_score: float
+    behavioral_fatigue_score: float
 
     learning_vector: Dict[str, Any]
     retrieved_chunks: List[RetrievedChunk]

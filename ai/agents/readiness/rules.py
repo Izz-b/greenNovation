@@ -40,6 +40,25 @@ def choose_intensity(
     return "normal", 30
 
 
+def derive_adaptation_controls(recommended_intensity: str) -> tuple[str, bool, str]:
+    """
+    Returns:
+    - difficulty_adjustment
+    - break_recommendation
+    - support_tone
+    """
+    if recommended_intensity == "recovery_light":
+        return "decrease", True, "supportive"
+
+    if recommended_intensity == "light":
+        return "decrease", True, "supportive"
+
+    if recommended_intensity == "normal":
+        return "keep", False, "neutral"
+
+    return "increase", False, "challenging"
+
+
 def compute_risk_flags(
     data: ReadinessInput,
     workload_pressure_score: float,

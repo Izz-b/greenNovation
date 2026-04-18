@@ -1,11 +1,12 @@
 from typing import Dict, List, Any
 from langchain_groq import ChatGroq
 import json
+from json import JSONDecodeError
+
+from ai.state.agent_context import AgentContext
 
 
-# =========================
 # LLM (ENERGY-AWARE)
-# =========================
 
 def get_llm(energy: dict):
     return ChatGroq(
@@ -15,9 +16,8 @@ def get_llm(energy: dict):
     )
 
 
-# =========================
 # CONTEXT BUILDER
-# =========================
+
 
 MAX_CHARS = 800
 
@@ -34,9 +34,9 @@ def build_context(chunks: List[Dict], max_chars: int) -> str:
     return context
 
 
-# =========================
+
 # HISTORY BUILDER
-# =========================
+
 
 def build_history(session_history: List[Dict], max_turns: int = 5) -> str:
     history = ""
@@ -48,9 +48,9 @@ def build_history(session_history: List[Dict], max_turns: int = 5) -> str:
     return history
 
 
-# =========================
+
 # PROFILE ADAPTATION
-# =========================
+
 
 def _profile_adaptation_block(state: dict) -> str:
     pv = state.get("profile_vector") or {}
@@ -75,9 +75,62 @@ TEACHING STYLE (adapt tone/format only):
 """
 
 
-# =========================
-# PROMPT BUILDER
-# =========================
+def _readiness_adaptation_block(state: AgentContext) -> str:
+    """Steer workload/tone based on readiness signal."""
+    readiness = state.get("readiness_signal") or {}
+    if not readiness:
+        return ""
+
+    reason = (readiness.get("reasoning_summary") or "").strip()
+    if len(reason) > 400:
+        reason = reason[:400] + "..."
+
+    return f"""
+READINESS SIGNAL (adapt teaching load and tone):
+- Recommended intensity: {readiness.get("recommended_intensity", "normal")}
+- Suggested session minutes: {readiness.get("suggested_session_minutes", 30)}
+- Difficulty adjustment: {readiness.get("difficulty_adjustment", "keep")}
+- Break recommendation: {readiness.get("break_recommendation", False)}
+- Support tone: {readiness.get("support_tone", "neutral")}
+{f"- Notes: {reason}" if reason else ""}
+"""
+
+
+def _derive_behavior_settings(state: AgentContext) -> Dict[str, Any]:
+    """Derive final behavior controls from energy + readiness signals."""
+    energy = state.get("energy_decision") or {}
+    readiness = state.get("readiness_signal") or {}
+
+    energy_mode = energy.get("mode", "balanced")
+    difficulty = "medium"
+    if energy_mode == "light":
+        difficulty = "easy"
+    elif energy_mode == "deep":
+        difficulty = "hard"
+
+    difficulty_adj = readiness.get("difficulty_adjustment")
+    if difficulty_adj == "decrease":
+        difficulty = "easy"
+    elif difficulty_adj == "increase":
+        difficulty = "hard"
+
+    support_tone = readiness.get("support_tone", "neutral")
+    style_hint = {
+        "supportive": "Use empathetic and encouraging language.",
+        "challenging": "Use direct coaching language with stretch prompts.",
+    }.get(support_tone, "Use neutral, clear, and concise language.")
+
+    suggested_minutes = readiness.get("suggested_session_minutes", 30)
+    break_needed = readiness.get("break_recommendation", False)
+
+    return {
+        "difficulty": difficulty,
+        "support_tone": support_tone,
+        "style_hint": style_hint,
+        "suggested_minutes": suggested_minutes,
+        "break_needed": break_needed,
+    }
+
 
 def build_prompt(state: dict) -> str:
 
@@ -95,21 +148,20 @@ def build_prompt(state: dict) -> str:
     )
 
     profile_block = _profile_adaptation_block(state)
+    readiness_block = _readiness_adaptation_block(state)
+    behavior = _derive_behavior_settings(state)
+    difficulty = behavior["difficulty"]
+    style_hint = behavior["style_hint"]
+    suggested_minutes = behavior["suggested_minutes"]
+    break_needed = behavior["break_needed"]
 
-    # =========================
     # ENERGY CONTROLS
-    # =========================
+
 
     mode = energy.get("mode", "balanced")
     generate_quiz = energy.get("generate_quiz", True)
     depth = energy.get("response_depth", "medium")
 
-    # difficulty
-    difficulty = "medium"
-    if mode == "light":
-        difficulty = "easy"
-    elif mode == "deep":
-        difficulty = "hard"
 
     # response length
     if depth == "short":
@@ -119,9 +171,9 @@ def build_prompt(state: dict) -> str:
     else:
         length_instruction = "Provide a balanced explanation."
 
-    # =========================
+
     # TASK LOGIC
-    # =========================
+ 
 
     if intent == "practice" and generate_quiz:
         task_instruction = f"""
@@ -173,6 +225,11 @@ STRICT RULES:
 - If not found, say: "I don't know based on the course material"
 
 {profile_block}
+{readiness_block}
+BEHAVIOR RULES:
+- {style_hint}
+- Target response depth appropriate for a {suggested_minutes}-minute study session.
+- {"Include a short break reminder at the end." if break_needed else "No break reminder needed unless user asks."}
 
 CONVERSATION SUMMARY:
 {summary}
@@ -194,9 +251,8 @@ ANSWER:
 """
 
 
-# =========================
 # SOURCE FORMATTER
-# =========================
+
 
 def format_sources(chunks: List[Dict]) -> List[str]:
     seen = set()
@@ -211,9 +267,9 @@ def format_sources(chunks: List[Dict]) -> List[str]:
     return sources
 
 
-# =========================
+
 # OUTPUT PARSER
-# =========================
+
 
 def parse_output(answer: str, intent: str) -> Dict[str, Any]:
 
@@ -223,7 +279,7 @@ def parse_output(answer: str, intent: str) -> Dict[str, Any]:
                 "answer_type": "exercise",
                 "content": json.loads(answer)
             }
-        except:
+        except JSONDecodeError:
             return {
                 "answer_type": "exercise",
                 "content": answer
@@ -238,9 +294,7 @@ def parse_output(answer: str, intent: str) -> Dict[str, Any]:
     return {"answer_type": "explanation", "content": answer}
 
 
-# =========================
 # SUMMARY UPDATE (OPTIMIZED)
-# =========================
 
 def update_conversation_summary(llm, previous_summary: str, new_turn: str) -> str:
     prompt = f"""
@@ -258,15 +312,14 @@ Updated summary (short, focused on learning progress):
     return response.content.strip()
 
 
-# =========================
 # LEARNING AGENT NODE
-# =========================
 
-def learning_agent(state: dict) -> dict:
+def learning_agent(state: AgentContext) -> AgentContext:
 
     try:
         chunks = state.get("retrieved_chunks", [])
         intent = state.get("routing", {}).get("intent", "learn_concept")
+        behavior = _derive_behavior_settings(state)
         energy = state.get("energy_decision", {})
 
         # ---- fallback ----
@@ -354,7 +407,7 @@ def learning_agent(state: dict) -> dict:
             "response_draft": {
                 "answer_type": parsed["answer_type"],
                 "structure": "contextual_rag",
-                "tone": "adaptive",
+                "tone": behavior["support_tone"],
             },
 
             "agent_runs": {

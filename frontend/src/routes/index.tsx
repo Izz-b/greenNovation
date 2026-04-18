@@ -61,12 +61,19 @@ function Dashboard() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button className="rounded-xl bg-card border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted transition shadow-card">
+          <Link
+            to="/calendar"
+            className="inline-flex items-center gap-2 rounded-xl bg-card border border-border px-4 py-2.5 text-sm font-medium hover:bg-muted transition shadow-card"
+          >
+            <Calendar className="h-4 w-4" />
             View calendar
-          </button>
-          <button className="rounded-xl gradient-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold shadow-glow hover:opacity-95 transition">
+          </Link>
+          <Link
+            to="/workspace"
+            className="rounded-xl gradient-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold shadow-glow hover:opacity-95 transition"
+          >
             Start session
-          </button>
+          </Link>
         </div>
       </div>
 
