@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
+from ai.agents.profile.schema import ProfileInference
 from ai.graph.learning_workflow import build_learning_graph
 
 
@@ -51,6 +52,14 @@ async def main():
         state = await graph.ainvoke(state)
 
         print("Profile agent:", state.get("agent_runs", {}).get("profile_agent", {}))
+        raw_pv = state.get("profile_vector") or {}
+        try:
+            profile_obj = ProfileInference.model_validate(raw_pv)
+            print("\n--- ProfileInference ---")
+            print(profile_obj.model_dump_json(indent=2))
+        except Exception as e:
+            print("\n--- ProfileInference (raw dict; validate failed) ---", e)
+            print(json.dumps(raw_pv, indent=2, ensure_ascii=False))
         print("Retrieved Chunks:", len(state.get("retrieved_chunks", [])))
 
         result = state.get("final_response")
