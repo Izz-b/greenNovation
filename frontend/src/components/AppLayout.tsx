@@ -14,10 +14,14 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { Panda } from "@/components/PandaCompanion";
+import { DailyReward } from "@/components/DailyReward";
+import { FloatingBamboo } from "@/components/FloatingBamboo";
+import { TreeRewardToast } from "@/components/TreeRewardToast";
+import { CalendarDays } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/calendar", label: "Calendar", icon: CalendarDays },
   { to: "/projects", label: "Projects", icon: FolderKanban },
   { to: "/learning", label: "Learning", icon: GraduationCap },
   { to: "/workspace", label: "Workspace", icon: BookOpen },
@@ -26,33 +30,48 @@ const navItems = [
 ] as const;
 
 export function AppLayout({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [hoverExpanded, setHoverExpanded] = useState(false);
   const { location } = useRouterState();
   const path = location.pathname;
+
+  // expanded if hovered (desktop) OR mobile menu open
+  const expanded = hoverExpanded || mobileOpen;
 
   return (
     <div className="min-h-screen flex w-full">
       {/* Mobile overlay */}
-      {open && (
+      {mobileOpen && (
         <div
           className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm lg:hidden"
-          onClick={() => setOpen(false)}
+          onClick={() => setMobileOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside
-        className={`fixed lg:sticky top-0 left-0 z-50 h-screen w-72 shrink-0 transform transition-transform duration-300 ease-out lg:translate-x-0 ${
-          open ? "translate-x-0" : "-translate-x-full"
-        }`}
+        onMouseEnter={() => setHoverExpanded(true)}
+        onMouseLeave={() => setHoverExpanded(false)}
+        className={`fixed lg:sticky top-0 left-0 z-50 h-screen shrink-0 transform transition-all duration-[250ms] ease-out lg:translate-x-0 ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        } ${expanded ? "w-64" : "w-[72px]"}`}
       >
-        <div className="flex h-full flex-col gap-2 bg-sidebar border-r border-sidebar-border p-4">
-          <div className="flex items-center justify-between px-2 py-3">
-            <Link to="/" className="flex items-center gap-2.5" onClick={() => setOpen(false)}>
-              <div className="relative h-10 w-10 rounded-2xl gradient-primary grid place-items-center shadow-glow">
+        <div className="flex h-full flex-col gap-2 bg-sidebar border-r border-sidebar-border p-3 overflow-hidden">
+          {/* Brand */}
+          <div className="flex items-center justify-between h-12 px-1">
+            <Link
+              to="/"
+              className="flex items-center gap-2.5 min-w-0"
+              onClick={() => setMobileOpen(false)}
+            >
+              <div className="relative h-10 w-10 rounded-2xl gradient-primary grid place-items-center shadow-glow shrink-0">
                 <Sparkles className="h-5 w-5 text-primary-foreground" strokeWidth={2.5} />
               </div>
-              <div className="leading-tight">
+              <div
+                className={`leading-tight whitespace-nowrap transition-all duration-200 ${
+                  expanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2 pointer-events-none"
+                }`}
+              >
                 <div className="font-display text-lg font-bold tracking-tight">EcoLearn</div>
                 <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                   AI · OS
@@ -60,15 +79,16 @@ export function AppLayout({ children }: { children: ReactNode }) {
               </div>
             </Link>
             <button
-              className="lg:hidden rounded-lg p-2 hover:bg-sidebar-accent"
-              onClick={() => setOpen(false)}
+              className="lg:hidden rounded-lg p-2 hover:bg-sidebar-accent shrink-0"
+              onClick={() => setMobileOpen(false)}
               aria-label="Close menu"
             >
               <X className="h-5 w-5" />
             </button>
           </div>
 
-          <nav className="flex flex-col gap-1 mt-2">
+          {/* Nav */}
+          <nav className="flex flex-col gap-1 mt-4">
             {navItems.map((item) => {
               const active = path === item.to;
               const Icon = item.icon;
@@ -76,41 +96,41 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 <Link
                   key={item.to}
                   to={item.to}
-                  onClick={() => setOpen(false)}
-                  className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
+                  onClick={() => setMobileOpen(false)}
+                  className={`group relative flex items-center gap-3 rounded-xl h-11 px-3 text-sm font-medium transition-colors ${
                     active
                       ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-soft"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:translate-x-0.5"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent"
                   }`}
+                  title={!expanded ? item.label : undefined}
                 >
                   <Icon
-                    className={`h-[18px] w-[18px] transition-transform ${active ? "" : "group-hover:scale-110"}`}
+                    className="h-[18px] w-[18px] shrink-0"
                     strokeWidth={active ? 2.4 : 2}
                   />
-                  <span>{item.label}</span>
-                  {active && (
+                  <span
+                    className={`whitespace-nowrap transition-all duration-200 ${
+                      expanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2 pointer-events-none absolute"
+                    }`}
+                  >
+                    {item.label}
+                  </span>
+                  {active && expanded && (
                     <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary-foreground/80" />
+                  )}
+
+                  {/* Tooltip for collapsed state */}
+                  {!expanded && (
+                    <span className="pointer-events-none absolute left-full ml-3 px-2.5 py-1.5 rounded-lg bg-foreground text-background text-xs font-semibold whitespace-nowrap opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150 shadow-card hidden lg:block z-50">
+                      {item.label}
+                    </span>
                   )}
                 </Link>
               );
             })}
           </nav>
 
-          {/* Avatar card at bottom */}
-          <div className="mt-auto rounded-2xl gradient-forest p-4 relative overflow-hidden">
-            <div className="absolute -right-4 -bottom-4 h-24 w-24 rounded-full bg-primary/10 blur-2xl" />
-            <div className="flex items-start gap-3 relative">
-              <div className="h-12 w-12 rounded-xl bg-card/60 p-1 grid place-items-center shrink-0">
-                <Panda mood="waving" size={40} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-semibold text-foreground">Bamboo says</div>
-                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
-                  You're on a 4-day streak! Keep it growing 🌱
-                </p>
-              </div>
-            </div>
-          </div>
+          <div className="mt-auto" />
         </div>
       </aside>
 
@@ -120,7 +140,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-3 px-4 lg:px-8 h-16">
             <button
               className="lg:hidden rounded-lg p-2 hover:bg-muted"
-              onClick={() => setOpen(true)}
+              onClick={() => setMobileOpen(true)}
               aria-label="Open menu"
             >
               <Menu className="h-5 w-5" />
@@ -155,6 +175,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
         <main className="flex-1 px-4 lg:px-8 py-6 lg:py-8">{children}</main>
       </div>
+
+      <DailyReward />
+      <FloatingBamboo />
+      <TreeRewardToast />
     </div>
   );
 }
