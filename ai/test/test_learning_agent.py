@@ -161,7 +161,13 @@ def test_learning_agent_success_sets_response_draft_tone_from_readiness(
     mock_llm.invoke.return_value = MagicMock(content="A concise explanation of inertia.")
     mock_get_llm.return_value = mock_llm
 
+    # Two prior turns + this exchange => len(session_history)==4 triggers summary update
     state = _base_state(
+        session_history=[
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ],
+        energy_decision={"mode": "balanced"},
         readiness_signal={
             "support_tone": "supportive",
             "recommended_intensity": "light",
