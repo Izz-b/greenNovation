@@ -6,8 +6,6 @@ import uuid
 import os
 
 
-
-
 # Load models 
 
 
@@ -24,8 +22,6 @@ vectorstore = FAISS.load_local(
 retriever = vectorstore.as_retriever(search_kwargs={"k": 8})
 
 reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-
-
 
 # Helpers
 
@@ -66,8 +62,6 @@ def build_retrieved_chunks(docs) -> List[Dict]:
         chunks.append(chunk)
 
     return chunks
-
-
 
 # RAG AGENT NODE
 

@@ -1,18 +1,13 @@
 from typing import Dict, List
 from langchain_groq import ChatGroq
 
-
-
 # LLM
-
 
 def get_llm():
     return ChatGroq(
         model="llama-3.1-8b-instant",
         temperature=0.3
     )
-
-
 
 # Context Builder 
 
@@ -34,7 +29,6 @@ def build_context(chunks: List[Dict]) -> str:
 
 
 # Prompt Builder 
-
 
 def build_prompt(state: dict) -> str:
 
@@ -88,8 +82,6 @@ QUESTION:
 ANSWER:
 """
 
-
-
 # Post-processing
 
 
@@ -105,10 +97,7 @@ def format_sources(chunks: List[Dict]) -> List[str]:
 
     return sources
 
-
-
 # LEARNING AGENT NODE
-
 
 def learning_agent(state: dict) -> dict:
     """
@@ -118,7 +107,7 @@ def learning_agent(state: dict) -> dict:
     try:
         chunks = state.get("retrieved_chunks", [])
 
-        # ✅ FIX: fallback if no context
+        #  fallback if no context
         if not chunks:
             return {
                 "final_response": "I don't know based on the course material.",
@@ -133,7 +122,7 @@ def learning_agent(state: dict) -> dict:
         llm = get_llm()
         prompt = build_prompt(state)
 
-        # ✅ FIX: structured messages
+        
         response = llm.invoke([
             {"role": "system", "content": "You are an academic AI assistant."},
             {"role": "user", "content": prompt}
