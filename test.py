@@ -8,9 +8,9 @@ from ai.rag.agent import rag_agent
 from ai.learning.agent import learning_agent
 
 
-# =========================
-# INITIAL STATE (simulate user input)
-# =========================
+
+# INITIAL STATE 
+
 
 state = {
     "query": "Explain what is a decorator in python",
@@ -32,9 +32,9 @@ state = {
 }
 
 
-# =========================
+
 # RUN RAG AGENT
-# =========================
+
 
 state = {**state, **rag_agent(state)}
 
@@ -42,9 +42,9 @@ print("\n--- Retrieved Chunks ---")
 print(len(state.get("retrieved_chunks", [])))
 
 
-# =========================
+
 # RUN LEARNING AGENT
-# =========================
+
 
 state = {**state, **learning_agent(state)}
 

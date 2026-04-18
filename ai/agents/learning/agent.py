@@ -2,9 +2,9 @@ from typing import Dict, List
 from langchain_groq import ChatGroq
 
 
-# =========================
+
 # LLM
-# =========================
+
 
 def get_llm():
     return ChatGroq(
@@ -13,9 +13,9 @@ def get_llm():
     )
 
 
-# =========================
-# Context Builder (FIX: limit size)
-# =========================
+
+# Context Builder 
+
 
 MAX_CHARS = 800  # prevent token overflow
 
@@ -33,9 +33,8 @@ def build_context(chunks: List[Dict]) -> str:
     return context
 
 
-# =========================
-# Prompt Builder (FIX: stronger rules)
-# =========================
+# Prompt Builder 
+
 
 def build_prompt(state: dict) -> str:
 
@@ -90,9 +89,9 @@ ANSWER:
 """
 
 
-# =========================
+
 # Post-processing
-# =========================
+
 
 def format_sources(chunks: List[Dict]) -> List[str]:
     seen = set()
@@ -107,9 +106,9 @@ def format_sources(chunks: List[Dict]) -> List[str]:
     return sources
 
 
-# =========================
+
 # LEARNING AGENT NODE
-# =========================
+
 
 def learning_agent(state: dict) -> dict:
     """

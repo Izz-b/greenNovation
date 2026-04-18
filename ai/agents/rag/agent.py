@@ -7,9 +7,9 @@ import os
 
 
 
-# =========================
-# Load models (once)
-# =========================
+
+# Load models 
+
 
 embedding_model = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
@@ -26,9 +26,9 @@ retriever = vectorstore.as_retriever(search_kwargs={"k": 8})
 reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 
-# =========================
+
 # Helpers
-# =========================
+
 
 def clean_source(path: str) -> str:
     return os.path.basename(path) if path else "unknown"
@@ -68,9 +68,9 @@ def build_retrieved_chunks(docs) -> List[Dict]:
     return chunks
 
 
-# =========================
+
 # RAG AGENT NODE
-# =========================
+
 
 def rag_agent(state: dict) -> dict:
     """
