@@ -4,19 +4,29 @@ import os
 
 from dotenv import load_dotenv
 
+# =========================
+# ENV + LANGSMITH
+# =========================
+
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
+# Enable LangSmith tracing
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_PROJECT"] = "edu-ai-hackathon"
+
+from langsmith import traceable
 from ai.graph.learning_workflow import build_learning_graph
 
 
 # =========================
-# INITIAL STATE (persistent)
+# INITIAL STATE (PERSISTENT)
 # =========================
 
 state = {
     "session_history": [],
     "conversation_summary": "",
 
+    # 🔋 Energy Agent Output (simulated)
     "energy_decision": {
         "mode": "balanced",
         "max_tokens": 400,
@@ -29,7 +39,24 @@ state = {
         "response_depth": "medium"
     },
 
-    "readiness_signal": {"behavioral_fatigue_band": "low"},
+    # 🧠 Readiness
+    "readiness_signal": {
+        "behavioral_fatigue_band": "low"
+    },
+
+    # 📅 Calendar for planner
+    "calendar_events": [
+        {
+            "title": "Math exam",
+            "date": "2026-04-20",
+            "priority": "high"
+        },
+        {
+            "title": "AI project deadline",
+            "date": "2026-04-22",
+            "priority": "high"
+        }
+    ],
 
     "course_context": {},
     "agent_runs": {},
@@ -39,19 +66,28 @@ state = {
 
 
 # =========================
-# CONVERSATION TEST
+# TEST SCENARIO
 # =========================
 
 queries = [
     ("learn_concept", "What is a decorator in python?"),
     ("practice", "Give me exercises on it"),
     ("revise", "Now help me revise it"),
-    ("learn_concept", "Explain it deeply with examples"),  # 🔥 added deep case
+    ("learn_concept", "Explain it deeply with examples"),
 ]
 
 
 # =========================
-# MAIN
+# TRACEABLE EXECUTION
+# =========================
+
+@traceable(name="learning_session")
+async def run_graph(graph, state):
+    return await graph.ainvoke(state)
+
+
+# =========================
+# MAIN LOOP
 # =========================
 
 async def main():
@@ -67,7 +103,7 @@ async def main():
         print(f"\n👉 Turn {i+1}")
 
         # -------------------------
-        # SIMULATE ENERGY CHANGES
+        # ENERGY MODE SIMULATION
         # -------------------------
         if i == 1:
             print("⚡ Switching to LIGHT mode")
@@ -117,7 +153,7 @@ async def main():
         # RUN GRAPH
         # -------------------------
         try:
-            state = await graph.ainvoke(state)
+            state = await run_graph(graph, state)
         except Exception as e:
             print("❌ ERROR during graph execution:", str(e))
             break
@@ -136,7 +172,7 @@ async def main():
             print(result)
 
         # -------------------------
-        # DEBUG INFO
+        # DEBUG / OBSERVABILITY
         # -------------------------
         print("\n--- ENERGY ---")
         print(json.dumps(state.get("energy_decision", {}), indent=2))
@@ -147,11 +183,21 @@ async def main():
         print("\n--- LEARNING META ---")
         print(state.get("agent_runs", {}).get("learning_agent", {}))
 
+        print("\n--- PLANNER META ---")
+        print(state.get("agent_runs", {}).get("planning_agent", {}))
+
         print("\n--- SUMMARY ---")
         print(state.get("conversation_summary"))
 
         print("\n--- HISTORY LEN ---")
         print(len(state.get("session_history", [])))
+
+        print("\n--- PLANNER OUTPUT ---")
+        planning = state.get("planning_task")
+        if planning:
+            print(json.dumps(planning, indent=2))
+        else:
+            print("No plan generated")
 
         if isinstance(result, str):
             print("\n--- RESPONSE LENGTH ---")
