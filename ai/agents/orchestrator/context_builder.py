@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from ai.agents.shared.agent_context import AgentContext
+from ai.state.agent_context import AgentContext
 
 
 def build_initial_context(

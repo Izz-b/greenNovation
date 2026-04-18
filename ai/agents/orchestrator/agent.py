@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from ai.agents.profile.node import profile_agent_node
 from ai.agents.rag.agent import rag_agent
-from ai.agents.readiness.agent import readiness_agent
+from ai.agents.readiness.agent import run_readiness_agent
 from ai.agents.energy.agent import energy_agent
 
 
@@ -170,7 +170,7 @@ async def orchestrator_agent(state: Dict[str, Any]) -> Dict[str, Any]:
             working_state = {**working_state, **rag_patch}
 
         if "readiness" in requested:
-            readiness_patch = readiness_agent(working_state)
+            readiness_patch = run_readiness_agent(working_state)
             updates.update(readiness_patch)
             working_state = {**working_state, **readiness_patch}
 

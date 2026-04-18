@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 
 # ENV + LANGSMITH
 
-
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 # Enable LangSmith tracing
@@ -19,22 +18,17 @@ from ai.agents.profile.schema import ProfileInference
 from ai.graph.learning_workflow import build_learning_graph
 
 
-
 # INITIAL STATE (PERSISTENT)
 
 state = {
     "session_history": [],
     "conversation_summary": "",
-    # energy_decision is set each turn by energy_agent (after readiness)
-
-  
-
-    # 🧠 Readiness (used by energy agent)
+    # energy_decision is set in orchestrator before profile/RAG/readiness
+    # readiness_signal: seed band for simulation; overwritten if readiness runs
     "readiness_signal": {
         "behavioral_fatigue_band": "low"
     },
-
-    # 📅 Calendar (for planner later)
+    # Calendar (for planner later)
     "calendar_events": [
         {
             "title": "Math exam",
@@ -47,7 +41,6 @@ state = {
             "priority": "high"
         }
     ],
-
     "course_context": {},
     "agent_runs": {},
     "errors": [],
@@ -56,25 +49,12 @@ state = {
 }
 
 
-
 # TEST SCENARIO
-
 
 queries = [
     ("learn_concept", "What is a decorator in python?"),
     ("practice", "Give me exercises on it"),
     ("revise", "Now help me revise it"),
-<<<<<<< HEAD
-    ("learn_concept", "Explain it deeply with examples"),
-]
-
-
-async def main():
-    global state
-
-    print("🚀 Starting orchestrated test...\n")
-=======
-<<<<<<< HEAD
     ("learn_concept", "Explain it deeply with examples"),  # deep case
 ]
 
@@ -123,11 +103,7 @@ readiness_scenarios = [
         "late_night_activity_ratio": 0.2,
         "long_sessions_without_breaks": 1,
     },
-=======
-    ("learn_concept", "Explain it deeply with examples"),
->>>>>>> f6810fd72b1e0d5019d02d47bdc888fc57277223
 ]
-
 
 
 # TRACEABLE EXECUTION
@@ -144,38 +120,25 @@ async def run_graph(graph, state):
 async def main():
     global state
 
-    print("Starting test...\n")
->>>>>>> 8cd14d90e75c22fc889fe5928dbbf80aebf7ce1e
+    print("Starting orchestrated test...\n")
 
     graph = build_learning_graph()
     print("Graph built\n")
 
     for i, (intent, query) in enumerate(queries):
-<<<<<<< HEAD
-        print(f"\n👉 Turn {i+1}")
+        print(f"\n👉 Turn {i + 1}")
 
-=======
-
-<<<<<<< HEAD
-        print(f"\nTurn {i+1}")
-=======
-        print(f"\n👉 Turn {i+1}")
-
-        # -------------------------
         # SIMULATE FATIGUE (for energy agent)
-        # -------------------------
->>>>>>> 8cd14d90e75c22fc889fe5928dbbf80aebf7ce1e
         if i == 1:
-            print("⚡ Simulating HIGH fatigue → should trigger LIGHT mode")
+            print("Simulating HIGH fatigue (LIGHT mode path)")
             state["readiness_signal"]["behavioral_fatigue_band"] = "high"
 
         elif i == 2:
-            print("⚖️ Simulating LOW fatigue → balanced mode")
+            print("Simulating LOW fatigue (balanced path)")
             state["readiness_signal"]["behavioral_fatigue_band"] = "low"
 
         elif i == 3:
-            print("🔥 Long query → should trigger DEEP mode")
->>>>>>> f6810fd72b1e0d5019d02d47bdc888fc57277223
+            print("Long query (DEEP mode path)")
 
         print("\n==============================")
         print(f"USER: {query}")
@@ -184,146 +147,85 @@ async def main():
 
         state["query"] = query
         state["routing"] = {"intent": intent}
-        state["passive_behavior_signals"] = readiness_scenarios[min(i, len(readiness_scenarios) - 1)]
+        state["passive_behavior_signals"] = readiness_scenarios[
+            min(i, len(readiness_scenarios) - 1)
+        ]
 
-<<<<<<< HEAD
-        state = await graph.ainvoke(state)
+        print("\n--- PASSIVE BEHAVIOR (readiness input, before run) ---")
+        print(json.dumps(state.get("passive_behavior_signals", {}), indent=2))
 
-        print("Orchestrator:", state.get("agent_runs", {}).get("orchestrator", {}))
-        print("Profile agent:", state.get("agent_runs", {}).get("profile_agent", {}))
-        print("RAG agent:", state.get("agent_runs", {}).get("rag_agent", {}))
-        print("Readiness agent:", state.get("agent_runs", {}).get("readiness_agent", {}))
-        print("Energy agent:", state.get("agent_runs", {}).get("energy_agent", {}))
-        print("Learning agent:", state.get("agent_runs", {}).get("learning_agent", {}))
-
-        raw_pv = state.get("profile_vector") or {}
-=======
-        # -------------------------
-        # RUN GRAPH (ONLY ONCE)
-        # -------------------------
->>>>>>> 8cd14d90e75c22fc889fe5928dbbf80aebf7ce1e
         try:
             state = await run_graph(graph, state)
         except Exception as e:
-<<<<<<< HEAD
-            print("\n--- ProfileInference (raw dict; validate failed) ---", e)
+            print("ERROR during graph execution:", str(e))
+            raw_pv = state.get("profile_vector") or {}
+            print("Profile vector at failure (if any):")
             print(json.dumps(raw_pv, indent=2, ensure_ascii=False))
-=======
-            print("❌ ERROR during graph execution:", str(e))
             break
->>>>>>> 8cd14d90e75c22fc889fe5928dbbf80aebf7ce1e
 
-        print("\n--- ROUTING ---")
+        runs = state.get("agent_runs", {})
+        # Same order as inside orchestrator_agent: routing → energy → profile →
+        # RAG → readiness → merge, then the graph runs learning on top.
+        print("\n--- ROUTING (orchestrator) ---")
         print(json.dumps(state.get("routing", {}), indent=2))
+        print("orchestrator run:", runs.get("orchestrator", {}))
 
-        print("\n--- MERGED SIGNAL BUNDLE ---")
-        print(json.dumps(state.get("merged_signal_bundle", {}), indent=2, ensure_ascii=False))
+        print("\n--- ENERGY (1st in pipeline) ---")
+        print("energy_agent run:", runs.get("energy_agent", {}))
+        print(json.dumps(state.get("energy_decision", {}), indent=2, ensure_ascii=False))
+
+        print("\n--- PROFILE ---")
+        print("profile_agent run:", runs.get("profile_agent", {}))
+        raw_pv = state.get("profile_vector") or {}
+        try:
+            profile_obj = ProfileInference.model_validate(raw_pv)
+            print(ProfileInference.__name__ + " (parsed):")
+            print(profile_obj.model_dump_json(indent=2))
+        except Exception as e:
+            print("profile_vector (parse failed):", e)
+            print(json.dumps(raw_pv, indent=2, ensure_ascii=False))
+
+        print("\n--- RAG ---")
+        print("rag_agent run:", runs.get("rag_agent", {}))
+        print("retrieved_chunks count:", len(state.get("retrieved_chunks", [])))
+
+        print("\n--- READINESS OUTPUT (readiness agent) ---")
+        print("readiness_agent run:", runs.get("readiness_agent", {}))
+        print(json.dumps(state.get("readiness_signal", {}), indent=2, ensure_ascii=False))
+
+        print("\n--- MERGED SIGNAL BUNDLE (orchestrator merge) ---")
+        bundle = state.get("merged_signal_bundle") or {}
+        slim = {k: v for k, v in bundle.items() if k != "retrieved_chunks"}
+        slim["retrieved_chunk_count"] = len(bundle.get("retrieved_chunks") or [])
+        print(json.dumps(slim, indent=2, default=str, ensure_ascii=False))
 
         print("\n--- RESPONSE DRAFT ---")
         print(json.dumps(state.get("response_draft", {}), indent=2, ensure_ascii=False))
 
-        print("\nASSISTANT:\n")
+        print("\n--- ASSISTANT (learning) ---\n")
         result = state.get("final_response")
         if isinstance(result, list):
-<<<<<<< HEAD
-=======
-            print("Quiz Output:\n")
->>>>>>> 8cd14d90e75c22fc889fe5928dbbf80aebf7ce1e
+            print("Quiz output:")
             print(json.dumps(result, indent=2))
         else:
             print(result)
 
-<<<<<<< HEAD
-        print("\n--- ENERGY ---")
-        print(json.dumps(state.get("energy_decision", {}), indent=2))
+        print("\n--- LEARNING (graph node) ---")
+        print("learning_agent run:", runs.get("learning_agent", {}))
 
-=======
-        # -------------------------
-        # PROFILE DEBUG
-        # -------------------------
-<<<<<<< HEAD
-        print("\n--- PASSIVE BEHAVIOR (readiness input) ---")
-        print(json.dumps(state.get("passive_behavior_signals", {}), indent=2))
-
-        print("\n--- ENERGY (from energy_agent) ---")
-        print(json.dumps(state.get("energy_decision", {}), indent=2))
-
-        print("\n--- READINESS SIGNAL ---")
-        print(json.dumps(state.get("readiness_signal", {}), indent=2))
-
-        print("\n--- MERGED SIGNAL BUNDLE ---")
-        bundle = state.get("merged_signal_bundle") or {}
-        # Avoid dumping full chunk bodies
-        slim = {k: v for k, v in bundle.items() if k != "retrieved_chunks"}
-        slim["retrieved_chunk_count"] = len(bundle.get("retrieved_chunks") or [])
-        print(json.dumps(slim, indent=2, default=str))
-
-=======
-        print("\n--- PROFILE ---")
-        print(state.get("agent_runs", {}).get("profile_agent", {}))
-
-        raw_pv = state.get("profile_vector") or {}
-        try:
-            profile_obj = ProfileInference.model_validate(raw_pv)
-            print("\n--- ProfileInference ---")
-            print(profile_obj.model_dump_json(indent=2))
-        except Exception as e:
-            print("\n--- ProfileInference (raw dict) ---", e)
-            print(json.dumps(raw_pv, indent=2, ensure_ascii=False))
-
-        # -------------------------
-        # ENERGY DEBUG (KEY PART)
-        # -------------------------
-        print("\n--- ENERGY DECISION ---")
-        print(json.dumps(state.get("energy_decision", {}), indent=2))
-
-        print("\n--- ENERGY META ---")
-        print(state.get("agent_runs", {}).get("energy_agent", {}))
-
-        # -------------------------
-        # RAG DEBUG
-        # -------------------------
->>>>>>> f6810fd72b1e0d5019d02d47bdc888fc57277223
-        print("\n--- RAG META ---")
-        print(state.get("agent_runs", {}).get("rag_agent", {}))
-        print("Retrieved Chunks:", len(state.get("retrieved_chunks", [])))
-
-        # -------------------------
-        # LEARNING DEBUG
-        # -------------------------
-        print("\n--- LEARNING META ---")
-        print(state.get("agent_runs", {}).get("learning_agent", {}))
-
-        # -------------------------
-        # SUMMARY + MEMORY
-        # -------------------------
->>>>>>> 8cd14d90e75c22fc889fe5928dbbf80aebf7ce1e
         print("\n--- SUMMARY ---")
         print(state.get("conversation_summary"))
 
         print("\n--- HISTORY LEN ---")
         print(len(state.get("session_history", [])))
 
-<<<<<<< HEAD
         print("\n--- WARNINGS ---")
         print(json.dumps(state.get("warnings", []), indent=2, ensure_ascii=False))
 
-=======
-        # -------------------------
-        # RESPONSE LENGTH
-        # -------------------------
->>>>>>> 8cd14d90e75c22fc889fe5928dbbf80aebf7ce1e
         if isinstance(result, str):
             print("\n--- RESPONSE LENGTH ---")
             print(len(result))
 
 
-<<<<<<< HEAD
-=======
-
-# ENTRY POINT
-
-
->>>>>>> 8cd14d90e75c22fc889fe5928dbbf80aebf7ce1e
 if __name__ == "__main__":
     asyncio.run(main())
