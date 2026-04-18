@@ -1,52 +1,82 @@
 from dotenv import load_dotenv
 import os
+import json
 
-# Load env (important for Groq)
+# Load env
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-from ai.rag.agent import rag_agent
-from ai.learning.agent import learning_agent
+from ai.agents.rag.agent import rag_agent
+from ai.agents.learning.agent import learning_agent
 
 
 
-# INITIAL STATE 
+# TEST CASES
 
 
-state = {
-    "query": "Explain what is a decorator in python",
-
-    # optional but useful for your adaptive system
-    "energy_decision": {
-        "response_depth": "medium"
-    },
-    "profile_vector": {
-        "preferred_explanation_style": "simple"
-    },
-    "readiness_signal": {
-        "behavioral_fatigue_band": "low"
-    },
-
-    "course_context": {},  # or add filters if you use them
-    "agent_runs": {},
-    "errors": []
-}
+test_cases = [
+    ("learn_concept", "Explain what is a decorator in python"),
+    ("practice", "Give me exercises on python decorators"),
+    ("revise", "Help me revise decorators"),
+    ("mixed", "Explain decorators and give practice questions")
+]
 
 
+for intent, query in test_cases:
 
-# RUN RAG AGENT
+    print("\n==============================")
+    print(f"TESTING INTENT: {intent}")
+    print("==============================\n")
 
+    # INITIAL STATE
+    state = {
+        "query": query,
 
-state = {**state, **rag_agent(state)}
+        "routing": {
+            "intent": intent
+        },
 
-print("\n--- Retrieved Chunks ---")
-print(len(state.get("retrieved_chunks", [])))
+        "energy_decision": {
+            "mode": "balanced",  # try: light / deep
+        },
 
+        "profile_vector": {
+            "preferred_explanation_style": "simple"
+        },
 
+        "readiness_signal": {
+            "behavioral_fatigue_band": "low"
+        },
 
-# RUN LEARNING AGENT
+        "course_context": {},
+        "agent_runs": {},
+        "errors": []
+    }
 
+   
+    # RAG
+   
+    state = {**state, **rag_agent(state)}
 
-state = {**state, **learning_agent(state)}
+    print("\n--- Retrieved Chunks ---")
+    print(len(state.get("retrieved_chunks", [])))
 
-print("\n--- Final Answer ---\n")
-print(state.get("final_response"))
+  
+    # LEARNING AGENT
+    
+    state = {**state, **learning_agent(state)}
+
+    result = state.get("final_response")
+
+    print("\n--- Final Output ---\n")
+
+   
+    # HANDLE OUTPUT TYPES
+  
+    if isinstance(result, list):
+        print("📚 Quiz Output (JSON):\n")
+        print(json.dumps(result, indent=2))
+    else:
+        print(result)
+
+    print("\n--- Agent Status ---")
+    print(state.get("agent_runs"))
