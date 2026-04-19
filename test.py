@@ -38,6 +38,7 @@ state = {
     "errors": [],
     "traces": [],
     "warnings": [],
+    "metrics": {},
 }
 
 
@@ -145,6 +146,19 @@ def print_turn_debug(current_state):
         print("\n--- RESPONSE LENGTH ---")
         print(len(result))
 
+    print("\n--- GREEN METRICS (cumulative) ---")
+    print(json.dumps(current_state.get("metrics", {}), indent=2, ensure_ascii=False))
+
+    traces = current_state.get("traces") or []
+    green_snapshots = [
+        t
+        for t in traces
+        if isinstance(t, dict) and t.get("agent") == "green_metrics"
+    ]
+    if green_snapshots:
+        print("\n--- GREEN METRICS (last orchestrator snapshot) ---")
+        print(json.dumps(green_snapshots[-1], indent=2, ensure_ascii=False))
+
 
 def print_planning_debug(current_state):
     runs = current_state.get("agent_runs", {})
@@ -169,6 +183,9 @@ def print_planning_debug(current_state):
         ensure_ascii=False
     ))
 
+    print("\n--- GREEN METRICS (after planning) ---")
+    print(json.dumps(current_state.get("metrics", {}), indent=2, ensure_ascii=False))
+
 
 # =========================
 # MAIN
@@ -183,7 +200,7 @@ async def main():
     print("Graph built\n")
 
     for i, (intent, query) in enumerate(queries):
-        print(f"\n👉 Study Turn {i + 1}")
+        print(f"\nStudy Turn {i + 1}")
 
         if i == 1:
             print("Simulating higher fatigue / lighter path")
