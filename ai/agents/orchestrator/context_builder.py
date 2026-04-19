@@ -39,6 +39,12 @@ def build_initial_context(
         "profile_vector": {},
         "session_signals": {},
         "energy_decision": {},
+        "energy_cache": {
+            "answer_cache": {},
+            "rag_cache": {},
+            "last_readiness_input": {},
+            "profile_refreshed_at_ts": 0.0,
+        },
 
         # ---- merged output ----
         "merged_signal_bundle": {},

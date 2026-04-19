@@ -9,6 +9,7 @@ from ai.agents.profile.node import profile_agent_node
 from ai.agents.rag.agent import rag_agent
 from ai.agents.readiness.agent import run_readiness_agent
 from ai.agents.energy.agent import energy_agent
+from ai.agents.energy.metrics import merge_metric_deltas
 
 
 def _utc_now() -> str:
@@ -237,6 +238,20 @@ async def orchestrator_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         energy_decision = updates.get("energy_decision", state.get("energy_decision", {}))
         execution_plan = _build_execution_plan(intent, energy_decision)
 
+        # Cache-driven fast paths decided by energy agent.
+        if energy_decision.get("reuse_cached_answer") and updates.get("cached_answer") is not None:
+            execution_plan["requested_agents"] = []
+        elif energy_decision.get("reuse_cached_rag") and isinstance(updates.get("cached_rag_chunks"), list):
+            updates["retrieved_chunks"] = updates.get("cached_rag_chunks") or []
+            execution_plan["requested_agents"] = [
+                a for a in execution_plan["requested_agents"] if a != "rag"
+            ]
+
+        if energy_decision.get("reuse_readiness_signal"):
+            execution_plan["requested_agents"] = [
+                a for a in execution_plan["requested_agents"] if a != "readiness"
+            ]
+
         updates["routing"] = {
             **routing,
             "requested_agents": execution_plan["requested_agents"],
@@ -249,6 +264,16 @@ async def orchestrator_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         # 2) PARALLEL FAN-OUT: profile, RAG, readiness (after energy), then merge patches
         specialist_patch = await _run_specialists_parallel(working_state, requested)
         updates.update(specialist_patch)
+
+        # Keep cache freshness metadata for energy decisions on next turn.
+        energy_cache = dict((state.get("energy_cache") or {}))
+        if "profile" in requested and specialist_patch.get("profile_vector"):
+            import time
+            energy_cache["profile_refreshed_at_ts"] = time.time()
+        if "readiness" in requested:
+            energy_cache["last_readiness_input"] = state.get("passive_behavior_signals") or {}
+        if energy_cache:
+            updates["energy_cache"] = energy_cache
 
         # 3) MERGE orchestrator bundle
         merged_patch = _merge_outputs({**state, **updates})
@@ -270,6 +295,27 @@ async def orchestrator_agent(state: Dict[str, Any]) -> Dict[str, Any]:
                     f"energy_mode={energy_decision.get('mode', 'unknown')}; "
                     f"requested_agents={execution_plan['requested_agents']}"
                 ),
+            }
+        )
+
+        invocations: Dict[str, int] = {"green_orchestrator_runs": 1}
+        if "profile" in requested:
+            invocations["green_profile_invocations"] = 1
+        if "rag" in requested:
+            invocations["green_rag_invocations"] = 1
+        if "readiness" in requested:
+            invocations["green_readiness_invocations"] = 1
+        updates["metrics"] = merge_metric_deltas(dict(updates.get("metrics") or {}), invocations)
+
+        gm = updates.get("metrics") or {}
+        updates["traces"].append(
+            {
+                "agent": "green_metrics",
+                "estimated_tokens_saved_total": gm.get("green_estimated_tokens_saved", 0),
+                "answer_cache_hits_total": gm.get("green_answer_cache_hits", 0),
+                "rag_calls_saved_total": gm.get("green_rag_calls_saved", 0),
+                "profile_calls_saved_total": gm.get("green_profile_calls_saved", 0),
+                "readiness_calls_saved_total": gm.get("green_readiness_calls_saved", 0),
             }
         )
 

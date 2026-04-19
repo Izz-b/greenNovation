@@ -4,6 +4,7 @@ import json
 from json import JSONDecodeError
 
 from ai.state.agent_context import AgentContext
+from ai.agents.energy.metrics import learning_cache_hit_deltas, merge_metric_deltas
 
 
 # LLM (ENERGY-AWARE)
@@ -326,9 +327,23 @@ def learning_agent(state: AgentContext) -> AgentContext:
         chunks = merged.get("retrieved_chunks", [])
         intent = merged.get("intent", "learn_concept")
         readiness = merged.get("readiness_signal", {}) or {}
-        energy = merged.get("energy_decision", {}) or {}
+        energy = merged.get("energy_decision", {}) or state.get("energy_decision", {}) or {}
 
         behavior = _derive_behavior_settings(energy, readiness)
+
+        if energy.get("reuse_cached_answer") and state.get("cached_answer") is not None:
+            cached = state.get("cached_answer")
+            return {
+                "final_response": cached,
+                "metrics": merge_metric_deltas(
+                    dict(state.get("metrics") or {}),
+                    learning_cache_hit_deltas(),
+                ),
+                "agent_runs": {
+                    **state.get("agent_runs", {}),
+                    "learning_agent": {"status": "cache_hit", "mode": energy.get("mode", "balanced")},
+                },
+            }
 
         # ---- fallback ----
         if not chunks:
@@ -408,17 +423,32 @@ def learning_agent(state: AgentContext) -> AgentContext:
             )
         else:
             updated_summary = previous_summary
+
         existing_draft = state.get("response_draft", {}) or {}
+
+        # Persist lightweight energy caches for next requests.
+        energy_cache = dict(state.get("energy_cache") or {})
+        answer_cache = dict(energy_cache.get("answer_cache") or {})
+        rag_cache = dict(energy_cache.get("rag_cache") or {})
+        cache_key = energy.get("cache_key")
+        if cache_key:
+            answer_cache[cache_key] = final_response
+            rag_cache[cache_key] = chunks
+        energy_cache["answer_cache"] = answer_cache
+        energy_cache["rag_cache"] = rag_cache
+        energy_cache["last_readiness_input"] = state.get("passive_behavior_signals") or {}
+
         return {
             "final_response": final_response,
             "session_history": session_history,
             "conversation_summary": updated_summary,
+            "energy_cache": energy_cache,
 
             "response_draft": {
-    "answer_type": parsed["answer_type"],
-    "structure": existing_draft.get("structure", "contextual_rag"),
-    "tone": existing_draft.get("tone", behavior["support_tone"]),
-},
+                "answer_type": parsed["answer_type"],
+                "structure": existing_draft.get("structure", "contextual_rag"),
+                "tone": existing_draft.get("tone", behavior["support_tone"]),
+            },
 
             "agent_runs": {
                 **state.get("agent_runs", {}),
