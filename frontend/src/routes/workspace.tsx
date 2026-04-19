@@ -138,8 +138,8 @@ function chapterKindLabel(kind: string): string {
   return kind;
 }
 
-/** Study block length before auto end + breathing break (same order of magnitude as the 5 min chill modal). */
-const WORKSPACE_STUDY_COUNTDOWN_SECONDS = 5 * 60;
+/** Study block length before auto end + breathing break. */
+const WORKSPACE_STUDY_COUNTDOWN_SECONDS = 2 * 60;
 
 function formatCountdown(totalSeconds: number): string {
   const m = Math.floor(totalSeconds / 60);
