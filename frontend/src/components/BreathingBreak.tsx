@@ -192,14 +192,14 @@ export function BreathingBreak({
         </div>
 
         {/* Body — breathing animation + timer */}
-        <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center text-center">
-          {/* Breathing rings */}
-          <div className="relative my-2 grid place-items-center">
+        <div className="flex-1 overflow-hidden px-6 pt-4 pb-4 flex flex-col items-center text-center">
+          {/* Breathing rings — compact, never overlap header */}
+          <div className="relative mt-2 mb-1 grid place-items-center" style={{ minHeight: 180 }}>
             <div
               className="absolute rounded-full bg-primary/15 transition-transform ease-in-out"
               style={{
-                width: 220,
-                height: 220,
+                width: 160,
+                height: 160,
                 transform: `scale(${phase.scale})`,
                 transitionDuration: `${phase.duration}ms`,
               }}
@@ -207,8 +207,8 @@ export function BreathingBreak({
             <div
               className="absolute rounded-full bg-accent/25 transition-transform ease-in-out"
               style={{
-                width: 180,
-                height: 180,
+                width: 130,
+                height: 130,
                 transform: `scale(${phase.scale})`,
                 transitionDuration: `${phase.duration}ms`,
               }}
@@ -216,13 +216,13 @@ export function BreathingBreak({
             <div
               className="absolute rounded-full border-2 border-primary/40 transition-transform ease-in-out"
               style={{
-                width: 200,
-                height: 200,
+                width: 145,
+                height: 145,
                 transform: `scale(${phase.scale})`,
                 transitionDuration: `${phase.duration}ms`,
               }}
             />
-            <div className="relative h-36 w-36 md:h-40 md:w-40 rounded-full overflow-hidden bg-background/60 ring-4 ring-background/80 shadow-glow">
+            <div className="relative h-24 w-24 rounded-full overflow-hidden bg-background/60 ring-4 ring-background/80 shadow-glow">
               <video
                 src="/panda-breathing.webm"
                 autoPlay
@@ -235,24 +235,24 @@ export function BreathingBreak({
           </div>
 
           {/* Phase label */}
-          <div key={phaseIdx} className="animate-[fade-in-up_0.3s_ease-out] mt-4">
-            <div className="text-xl md:text-2xl font-display font-bold text-primary tracking-wide">
+          <div key={phaseIdx} className="animate-[fade-in-up_0.3s_ease-out] mt-2">
+            <div className="text-base md:text-lg font-display font-bold text-primary tracking-wide">
               {done ? "All done" : phase.label}
             </div>
             {!done && (
-              <div className="text-[11px] uppercase tracking-[0.25em] text-muted-foreground mt-0.5">
+              <div className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground mt-0.5">
                 {phase.sub}
               </div>
             )}
           </div>
 
           {/* Timer */}
-          <div className="mt-3 flex items-baseline gap-1 font-display">
-            <span className="text-4xl md:text-5xl font-bold tabular-nums text-foreground drop-shadow-sm">
+          <div className="mt-2 flex items-baseline gap-1 font-display">
+            <span className="text-3xl font-bold tabular-nums text-foreground drop-shadow-sm">
               {String(mins).padStart(2, "0")}
             </span>
-            <span className="text-2xl font-bold text-muted-foreground">:</span>
-            <span className="text-4xl md:text-5xl font-bold tabular-nums text-foreground drop-shadow-sm">
+            <span className="text-xl font-bold text-muted-foreground">:</span>
+            <span className="text-3xl font-bold tabular-nums text-foreground drop-shadow-sm">
               {String(secs).padStart(2, "0")}
             </span>
           </div>
