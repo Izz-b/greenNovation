@@ -90,16 +90,16 @@ Calendar:
 def should_run_planner(state: dict) -> bool:
     """
     Run planner only:
-    - Once per day
+    - Once per calendar day (UTC), or first time ever
     - OR when explicitly forced (for testing)
     """
 
     today = datetime.utcnow().date()
 
-    planner_state = state.get("planner_state", {})
+    planner_state = state.get("planner_state") or {}
     last_date = planner_state.get("last_generated_date")
 
-    # 🧪 Allow manual override (for testing)
+    # Allow manual override (for testing)
     if state.get("force_planner", False):
         return True
 
@@ -107,10 +107,13 @@ def should_run_planner(state: dict) -> bool:
     if last_date is None:
         return True
 
-    last_date = datetime.fromisoformat(last_date).date()
+    try:
+        parsed = datetime.fromisoformat(str(last_date).strip().replace("Z", "+00:00"))
+        last_day = parsed.date()
+    except (TypeError, ValueError):
+        return True
 
-    # Run only if new day
-    return today > last_date
+    return today > last_day
 
 # OUTPUT PARSER
 
@@ -131,34 +134,39 @@ def parse_planner_output(text: str) -> Dict[str, Any]:
 
 
 
+def _copy_planner_state(state: dict) -> Dict[str, Any]:
+    """Single key for planner cadence: `planner_state` (aligned with graph + should_run_planner)."""
+    base = dict(state.get("planner_state") or {})
+    if "last_generated_date" not in base:
+        base["last_generated_date"] = None
+    if "turns_since_last_plan" not in base:
+        base["turns_since_last_plan"] = 0
+    return base
+
+
 def planning_agent(state: dict) -> dict:
     """
-    Runs once per day AFTER meaningful learning.
+    Runs at most once per UTC day (see should_run_planner), unless force_planner is set.
     """
 
+    planner_state = _copy_planner_state(state)
+    planner_state["turns_since_last_plan"] = int(planner_state.get("turns_since_last_plan", 0) or 0) + 1
+
+    merged = {**state, "planner_state": planner_state}
+
+    if not should_run_planner(merged):
+        return {
+            "planner_state": planner_state,
+            "agent_runs": {
+                **state.get("agent_runs", {}),
+                "planning_agent": {
+                    "status": "skipped",
+                    "reason": "Already generated today or cadence gate",
+                },
+            },
+        }
+
     try:
-        meta = state.get("planner_meta", {
-            "last_generated_date": None,
-            "turns_since_last_plan": 0
-        })
-
-        # Increment turns
-        meta["turns_since_last_plan"] = meta.get("turns_since_last_plan", 0) + 1
-
-        # Decide if planner should run
-        if not should_run_planner({**state, "planner_meta": meta}):
-            return {
-                "planner_meta": meta,
-                "agent_runs": {
-                    **state.get("agent_runs", {}),
-                    "planning_agent": {
-                        "status": "skipped",
-                        "reason": "Not end of session or already generated today"
-                    }
-                }
-            }
-
-        # ✅ RUN PLANNER
         llm = get_llm()
         prompt = build_planner_prompt(state)
 
@@ -167,31 +175,30 @@ def planning_agent(state: dict) -> dict:
 
         parsed = parse_planner_output(raw_output)
 
-        # Update meta
-        meta["last_generated_date"] = datetime.now().date().isoformat()
-        meta["turns_since_last_plan"] = 0
+        planner_state["last_generated_date"] = datetime.utcnow().date().isoformat()
+        planner_state["turns_since_last_plan"] = 0
 
         return {
             "planning_task": parsed,
-            "planner_meta": meta,
-
+            "planner_state": planner_state,
             "agent_runs": {
                 **state.get("agent_runs", {}),
                 "planning_agent": {
-                    "status": "success"
-                }
-            }
+                    "status": "success",
+                },
+            },
         }
 
     except Exception as e:
         return {
             "planning_task": {},
+            "planner_state": planner_state,
             "errors": state.get("errors", []) + [f"planning_agent error: {str(e)}"],
             "agent_runs": {
                 **state.get("agent_runs", {}),
                 "planning_agent": {
                     "status": "failed",
-                    "error": str(e)
-                }
-            }
+                    "error": str(e),
+                },
+            },
         }

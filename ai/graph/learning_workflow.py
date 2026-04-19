@@ -11,13 +11,11 @@ are not double-invoked; the learning node produces the user-facing reply.
 from __future__ import annotations
 
 from typing import Any, Dict
-from datetime import datetime
 from langgraph.graph import END, START, StateGraph
 
 from ai.agents.learning.agent import learning_agent
 from ai.agents.orchestrator.agent import orchestrator_agent
 from ai.agents.planner.agent import planning_agent
-from ai.agents.planner.agent import should_run_planner
 
 
 async def orchestrator_step(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -40,38 +38,10 @@ async def run_learning_pipeline(state: Dict[str, Any]) -> Dict[str, Any]:
     return state
 def planning_step(state: dict) -> dict:
     """
-    Runs planner ONLY once per day (or if forced).
+    Delegates cadence + LLM to `planning_agent` (single source of truth for `planner_state`).
     """
-
-    planner_state = state.get("planner_state", {
-        "last_generated_date": None,
-        "turns_since_last_plan": 0
-    })
-
-    # increment turns
-    planner_state["turns_since_last_plan"] += 1
-
-    if not should_run_planner(state):
-        return {
-            "planner_state": planner_state,
-            "agent_runs": {
-                **state.get("agent_runs", {}),
-                "planning_agent": {
-                    "status": "skipped"
-                }
-            }
-        }
-
-    # ✅ Run planner
-    result = planning_agent(state)
-
-    planner_state["last_generated_date"] = datetime.utcnow().isoformat()
-    planner_state["turns_since_last_plan"] = 0
-
-    return {
-        **result,
-        "planner_state": planner_state
-    }
+    patch = planning_agent(state)
+    return {**state, **patch}
 def route_after_learning(state: Dict[str, Any]) -> str:
     action = state.get("session_action", "continue")
     if action == "stop":
