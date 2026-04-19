@@ -37,6 +37,27 @@ def clean_source(path: str) -> str:
     return os.path.basename(path) if path else "unknown"
 
 
+def _normalize_source_key(raw: str) -> str:
+    if not raw:
+        return ""
+    return os.path.basename(str(raw).replace("\\", "/"))
+
+
+def _doc_matches_allowed_sources(metadata: dict, allowed: List[str]) -> bool:
+    """Match corpus filename from workspace (`allowed_sources`) to index metadata."""
+    raw = (metadata or {}).get("source") or ""
+    if not raw:
+        return False
+    base = _normalize_source_key(raw)
+    for src in allowed:
+        s = (src or "").strip()
+        if not s:
+            continue
+        if s in raw or s == base or base.endswith(s) or s in base:
+            return True
+    return False
+
+
 def rerank(query: str, docs, top_k: int = 3):
     pairs = [(query, d.page_content) for d in docs]
     scores = reranker.predict(pairs)
@@ -114,20 +135,24 @@ def rag_agent(state: dict) -> dict:
         # fallback if energy didn't specify
         top_k = retrieval_query.get("top_k", top_k)
 
-        # RETRIEVE
-        docs = vectorstore.similarity_search(query_to_use, k=top_k)
-
-        # FILTER (course-specific)
-        
         allowed_sources = (
             state.get("course_context", {})
             .get("allowed_sources", [])
         )
 
+        # When the UI pins one document, the global top-k semantic hits are often
+        # from *other* PDFs. Retrieve many candidates first, then filter by file.
+        k_retrieve = top_k
+        if allowed_sources:
+            k_retrieve = min(150, max(top_k * 25, 60))
+
+        docs = vectorstore.similarity_search(query_to_use, k=k_retrieve)
+
+        # FILTER (course-specific)
         if allowed_sources:
             docs = [
                 d for d in docs
-                if any(src in d.metadata.get("source", "") for src in allowed_sources)
+                if _doc_matches_allowed_sources(d.metadata or {}, allowed_sources)
             ]
 
         # RERANK (optional)
