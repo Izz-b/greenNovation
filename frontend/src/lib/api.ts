@@ -4,6 +4,12 @@
  */
 const base = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 
+export type SessionInsightsPayload = {
+  sessionMinutes?: string | null;
+  breakNeeded?: string | null;
+  difficultyAdjustment?: string | null;
+};
+
 export type ChatResponse = {
   session_id: string;
   reply: string;
@@ -11,11 +17,13 @@ export type ChatResponse = {
   routing?: Record<string, unknown> | null;
   errors: string[];
   warnings: string[];
+  session_insights?: SessionInsightsPayload | null;
 };
 
 export async function postChat(body: {
   message: string;
   session_id?: string | null;
+  /** Passed through to the orchestrator (e.g. revise, practice, learn_concept). */
   intent?: string | null;
   course_context?: Record<string, unknown> | null;
 }): Promise<ChatResponse> {

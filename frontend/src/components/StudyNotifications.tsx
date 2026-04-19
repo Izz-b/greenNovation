@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, Coffee, BookOpen, Brain, Leaf, Target, Clock } from "lucide-react";
+import {
+  Sparkles,
+  Coffee,
+  BookOpen,
+  Brain,
+  Leaf,
+  Target,
+  Clock,
+  SlidersHorizontal,
+} from "lucide-react";
+import type { SessionInsights } from "@/lib/parseSessionInsights";
+import { hasSessionInsights } from "@/lib/parseSessionInsights";
 
 type Notif = {
   uid: string;
@@ -87,12 +98,34 @@ function playBlip() {
   }
 }
 
-export function StudyNotifications() {
+type StudyNotificationsProps = {
+  /** From API readiness and/or parsed tutor reply lines. */
+  sessionInsights?: SessionInsights | null;
+  /** Increment when insights refresh to replay enter + glow (sync with parent state). */
+  insightsEpoch?: number;
+};
+
+export function StudyNotifications({ sessionInsights = null, insightsEpoch = 0 }: StudyNotificationsProps) {
   // visible[0] = top, visible[1] = bottom
   const [visible, setVisible] = useState<Notif[]>(() => [make(0), make(1)]);
   const [leavingId, setLeavingId] = useState<string | null>(null);
+  const [insightGlow, setInsightGlow] = useState(false);
   const idxRef = useRef(2);
   const mountedRef = useRef(false);
+  const lastInsightEpoch = useRef(0);
+
+  useEffect(() => {
+    if (insightsEpoch === 0) {
+      lastInsightEpoch.current = 0;
+      return;
+    }
+    if (insightsEpoch !== lastInsightEpoch.current) {
+      lastInsightEpoch.current = insightsEpoch;
+      setInsightGlow(true);
+      const t = window.setTimeout(() => setInsightGlow(false), 1200);
+      return () => window.clearTimeout(t);
+    }
+  }, [insightsEpoch]);
 
   useEffect(() => {
     const tick = () => {
@@ -123,15 +156,86 @@ export function StudyNotifications() {
     return () => clearInterval(t);
   }, [visible]);
 
+  const insightRows: {
+    key: string;
+    icon: typeof Clock;
+    tone: Notif["tone"];
+    title: string;
+    body: string;
+  }[] = [];
+  if (sessionInsights && hasSessionInsights(sessionInsights)) {
+    if (sessionInsights.sessionMinutes) {
+      insightRows.push({
+        key: "minutes",
+        icon: Clock,
+        tone: "primary",
+        title: "Session minutes",
+        body: sessionInsights.sessionMinutes,
+      });
+    }
+    if (sessionInsights.breakNeeded) {
+      insightRows.push({
+        key: "break",
+        icon: Coffee,
+        tone: "sky",
+        title: "Break needed",
+        body: sessionInsights.breakNeeded,
+      });
+    }
+    if (sessionInsights.difficultyAdjustment) {
+      insightRows.push({
+        key: "difficulty",
+        icon: SlidersHorizontal,
+        tone: "warm",
+        title: "Difficulty adjustment",
+        body: sessionInsights.difficultyAdjustment,
+      });
+    }
+  }
+  const insightCount = insightRows.length;
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 px-1">
         <Sparkles className="h-3.5 w-3.5 text-primary" />
         <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
-          Live recommendations
+          Live insights
         </span>
       </div>
       <div className="relative space-y-3">
+        {insightRows.map((row, idx) => {
+          const Icon = row.icon;
+          return (
+            <div
+              key={`${insightsEpoch}-${row.key}`}
+              className={`relative rounded-2xl bg-card border border-border shadow-card p-4 flex items-start gap-3 ${
+                insightGlow ? "ring-2 ring-primary/40" : ""
+              }`}
+              style={{ animation: "notif-enter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)" }}
+            >
+              {insightGlow && (
+                <span
+                  className="pointer-events-none absolute inset-0 rounded-2xl"
+                  style={{ animation: "notif-glow 1.2s ease-out" }}
+                />
+              )}
+              <div
+                className={`h-10 w-10 rounded-full border grid place-items-center shrink-0 ${TONE[row.tone]}`}
+              >
+                <Icon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-primary flex items-center gap-1.5">
+                  {row.title}
+                  {idx === 0 && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{row.body}</p>
+              </div>
+            </div>
+          );
+        })}
         {visible.map((n, i) => {
           const Icon = n.icon;
           const leaving = leavingId === n.uid;
@@ -140,6 +244,7 @@ export function StudyNotifications() {
             : n.isNew
               ? "notif-enter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)"
               : "notif-shift 0.5s cubic-bezier(0.34, 1.4, 0.64, 1)";
+          const showPulse = insightCount === 0 && i === 0;
           return (
             <div
               key={n.uid}
@@ -155,14 +260,14 @@ export function StudyNotifications() {
                 />
               )}
               <div
-                className={`h-10 w-10 rounded-xl border grid place-items-center shrink-0 ${TONE[n.tone]}`}
+                className={`h-10 w-10 rounded-full border grid place-items-center shrink-0 ${TONE[n.tone]}`}
               >
                 <Icon className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <div className="text-xs font-bold flex items-center gap-1.5">
+                <div className="text-xs font-bold text-primary flex items-center gap-1.5">
                   {n.title}
-                  {i === 0 && (
+                  {showPulse && (
                     <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
                   )}
                 </div>
