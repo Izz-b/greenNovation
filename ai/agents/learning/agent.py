@@ -4,6 +4,7 @@ import json
 from json import JSONDecodeError
 
 from ai.state.agent_context import AgentContext
+from ai.agents.energy.metrics import learning_cache_hit_deltas, merge_metric_deltas
 
 
 # LLM (ENERGY-AWARE)
@@ -317,6 +318,21 @@ Updated summary (short, focused on learning progress):
 def learning_agent(state: AgentContext) -> AgentContext:
 
     try:
+        energy = state.get("energy_decision", {})
+        if energy.get("reuse_cached_answer") and state.get("cached_answer") is not None:
+            cached = state.get("cached_answer")
+            return {
+                "final_response": cached,
+                "metrics": merge_metric_deltas(
+                    dict(state.get("metrics") or {}),
+                    learning_cache_hit_deltas(),
+                ),
+                "agent_runs": {
+                    **state.get("agent_runs", {}),
+                    "learning_agent": {"status": "cache_hit", "mode": energy.get("mode", "balanced")},
+                },
+            }
+
         chunks = state.get("retrieved_chunks", [])
         intent = state.get("routing", {}).get("intent", "learn_concept")
         behavior = _derive_behavior_settings(state)
@@ -399,10 +415,23 @@ def learning_agent(state: AgentContext) -> AgentContext:
         else:
             updated_summary = previous_summary
 
+        # Persist lightweight energy caches for next requests.
+        energy_cache = dict(state.get("energy_cache") or {})
+        answer_cache = dict(energy_cache.get("answer_cache") or {})
+        rag_cache = dict(energy_cache.get("rag_cache") or {})
+        cache_key = energy.get("cache_key")
+        if cache_key:
+            answer_cache[cache_key] = final_response
+            rag_cache[cache_key] = chunks
+        energy_cache["answer_cache"] = answer_cache
+        energy_cache["rag_cache"] = rag_cache
+        energy_cache["last_readiness_input"] = state.get("passive_behavior_signals") or {}
+
         return {
             "final_response": final_response,
             "session_history": session_history,
             "conversation_summary": updated_summary,
+            "energy_cache": energy_cache,
 
             "response_draft": {
                 "answer_type": parsed["answer_type"],
