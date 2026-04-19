@@ -28,7 +28,7 @@ dev = ["pytest>=8.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ai*", "api*"]
+include = ["ai*", "backend*"]
 
 [tool.pytest.ini_options]
 testpaths = ["ai/test"]
