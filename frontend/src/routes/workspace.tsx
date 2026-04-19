@@ -16,6 +16,7 @@ import {
   MessagesSquare,
   Download,
   Loader2,
+  CircleStop,
 } from "lucide-react";
 import type { Material } from "@/data/chapters";
 import { RichContent } from "@/components/RichContent";
@@ -39,6 +40,17 @@ import {
   type QuizItem,
   type SummarySections,
 } from "@/lib/parseToolReplies";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Switch } from "@/components/ui/switch";
 
 export const Route = createFileRoute("/workspace")({
   head: () => ({
@@ -139,7 +151,39 @@ function WorkspacePage() {
   const [sessionInsights, setSessionInsights] = useState<SessionInsights | null>(null);
   /** Bumps when insights update so cards replay the “popup” animation */
   const [insightsEpoch, setInsightsEpoch] = useState(0);
+  /** Tracks whether the learner is in an active study session (synced across refresh if session id exists). */
+  const [studySessionActive, setStudySessionActive] = useState(() =>
+    Boolean(getStoredChatSessionId()),
+  );
+  const [endSessionDialogOpen, setEndSessionDialogOpen] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  const endStudySession = () => {
+    if (sessionId) void deleteSession(sessionId);
+    setStoredChatSessionId(null);
+    setSessionId(null);
+    setMessages([]);
+    setSessionInsights(null);
+    setInsightsEpoch(0);
+    setStudySessionActive(false);
+  };
+
+  const onStudySessionSwitch = (checked: boolean) => {
+    if (checked) {
+      setStudySessionActive(true);
+      return;
+    }
+    if (!sessionId && messages.length === 0) {
+      setStudySessionActive(false);
+      return;
+    }
+    setEndSessionDialogOpen(true);
+  };
+
+  const confirmEndStudySession = () => {
+    endStudySession();
+    setEndSessionDialogOpen(false);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -211,6 +255,7 @@ function WorkspacePage() {
       });
       setSessionId(res.session_id);
       setStoredChatSessionId(res.session_id);
+      setStudySessionActive(true);
       const reply =
         res.errors?.length && !res.reply?.trim()
           ? `Error: ${res.errors.join("; ")}`
@@ -312,35 +357,58 @@ function WorkspacePage() {
           </h1>
         </div>
 
-        {/* Reader / Chat toggle */}
-        <div className="flex p-1 bg-muted rounded-2xl shrink-0">
-          <button
-            onClick={() => setView("reader")}
-            className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-              view === "reader"
-                ? "bg-card shadow-card text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <BookOpen className="h-3.5 w-3.5" /> Reader
-          </button>
-          <button
-            onClick={() => setView("chat")}
-            className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-              view === "chat"
-                ? "bg-card shadow-card text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <MessagesSquare className="h-3.5 w-3.5" /> Chat
-            {messages.length > 0 && (
-              <span className="ml-0.5 h-4 min-w-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold grid place-items-center">
-                {messages.length}
-              </span>
-            )}
-          </button>
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          <div className="flex p-1 bg-muted rounded-2xl">
+            <button
+              onClick={() => setView("reader")}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+                view === "reader"
+                  ? "bg-card shadow-card text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <BookOpen className="h-3.5 w-3.5" /> Reader
+            </button>
+            <button
+              onClick={() => setView("chat")}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+                view === "chat"
+                  ? "bg-card shadow-card text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <MessagesSquare className="h-3.5 w-3.5" /> Chat
+              {messages.length > 0 && (
+                <span className="ml-0.5 h-4 min-w-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold grid place-items-center">
+                  {messages.length}
+                </span>
+              )}
+            </button>
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-card/80 px-2.5 py-1.5 shadow-sm">
+            <CircleStop
+              className={`h-3.5 w-3.5 shrink-0 ${studySessionActive ? "text-primary" : "text-muted-foreground"}`}
+              aria-hidden
+            />
+            <Switch
+              id="workspace-study-session"
+              checked={studySessionActive}
+              onCheckedChange={onStudySessionSwitch}
+              aria-label="Study session active"
+            />
+            <label
+              htmlFor="workspace-study-session"
+              className="text-[11px] font-semibold text-foreground cursor-pointer select-none whitespace-nowrap"
+            >
+              Study session
+            </label>
+          </div>
         </div>
       </div>
+
+      <p className="text-[11px] text-muted-foreground -mt-1 mb-3 max-w-xl">
+        Turn off when you are finished to end the chat, clear insights, and drop the server session.
+      </p>
 
       <div className="grid grid-cols-12 gap-5">
         {/* Materials with expandable chapters */}
@@ -522,17 +590,11 @@ function WorkspacePage() {
                   </div>
                   {messages.length > 0 && (
                     <button
-                      onClick={() => {
-                        if (sessionId) void deleteSession(sessionId);
-                        setStoredChatSessionId(null);
-                        setSessionId(null);
-                        setMessages([]);
-                        setSessionInsights(null);
-                        setInsightsEpoch(0);
-                      }}
+                      type="button"
+                      onClick={() => setEndSessionDialogOpen(true)}
                       className="text-xs font-semibold text-muted-foreground hover:text-foreground"
                     >
-                      Clear
+                      End session
                     </button>
                   )}
                 </div>
@@ -691,6 +753,22 @@ function WorkspacePage() {
           <StudyNotifications sessionInsights={sessionInsights} insightsEpoch={insightsEpoch} />
         </aside>
       </div>
+
+      <AlertDialog open={endSessionDialogOpen} onOpenChange={setEndSessionDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>End study session?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This clears the conversation, resets live insights, deletes the AI session on the server, and removes
+              the saved session link (including from the dashboard readiness view). You can start a new session anytime.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep studying</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmEndStudySession}>End session</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
