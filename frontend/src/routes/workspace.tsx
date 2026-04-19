@@ -14,12 +14,17 @@ import {
   FolderOpen,
   Folder,
   MessagesSquare,
+  Download,
+  Loader2,
 } from "lucide-react";
-import { materials, type Chapter } from "@/data/chapters";
+import type { Material } from "@/data/chapters";
 import { RichContent } from "@/components/RichContent";
 import { PdfViewer } from "@/components/PdfViewer";
+import { PptxViewer } from "@/components/PptxViewer";
 import { StudyNotifications } from "@/components/StudyNotifications";
 import { ChatBubble, TypingDots } from "@/components/FloatingBamboo";
+import { corpusFileUrl, deleteSession, fetchCorpusFiles, postChat } from "@/lib/api";
+import { buildCorpusMaterial } from "@/lib/corpusWorkspace";
 
 export const Route = createFileRoute("/workspace")({
   head: () => ({
@@ -52,36 +57,65 @@ const CHAT_SUGGESTIONS = [
   "Summarize this page",
 ];
 
-function fakeReply(prompt: string, chapter?: Chapter): string {
-  const p = prompt.toLowerCase();
-  const topic = chapter?.name.replace(/^Ch\.\s*\d+\s*—\s*/, "") ?? "this material";
-  if (p.includes("simply") || p.includes("simple"))
-    return `Sure! ${topic} in plain words: it's about how a transformation acts on space — some directions only get stretched, others get rotated. The "stretch-only" directions are the special ones.`;
-  if (p.includes("example"))
-    return `Imagine spinning a globe. The axis going through the poles is the eigenvector — every other point rotates, but the poles stay still and only "stretch" along the axis. That's the geometric idea.`;
-  if (p.includes("summar"))
-    return `Quick summary of ${topic}:\n• Eigenvectors are directions a linear map only scales.\n• Eigenvalues come from solving det(A − λI) = 0.\n• A diagonalizable matrix has a full eigenbasis.`;
-  return `Great question. In the context of ${topic}, the short answer is: yes — and the reason is that the determinant condition forces a non-trivial null space, which is exactly where eigenvectors live.`;
+function chapterKindLabel(kind: string): string {
+  if (kind === "download") return "File";
+  if (kind === "pdf") return "PDF";
+  if (kind === "pptx") return "PPTX";
+  if (kind === "mixed") return "Mixed";
+  if (kind === "rich") return "Text";
+  return kind;
 }
 
 function WorkspacePage() {
   const [tab, setTab] = useState<"summary" | "quiz" | "explain">("summary");
   const [view, setView] = useState<"reader" | "chat">("reader");
+  const [corpusMaterial, setCorpusMaterial] = useState<ReturnType<typeof buildCorpusMaterial>>(null);
+  const [corpusLoading, setCorpusLoading] = useState(true);
+  const [corpusError, setCorpusError] = useState<string | null>(null);
+  const corpusBootstrapped = useRef(false);
+
+  const workspaceMaterials: Material[] = corpusMaterial ? [corpusMaterial] : [];
+
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    linalg: true,
-    ml: false,
-    physics: false,
+    corpus: true,
   });
-  const [activeChapter, setActiveChapter] = useState<string>("la-3");
+  const [activeChapter, setActiveChapter] = useState<string>("");
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setCorpusLoading(true);
+      setCorpusError(null);
+      try {
+        const res = await fetchCorpusFiles();
+        if (cancelled) return;
+        const built = buildCorpusMaterial(res.files);
+        setCorpusMaterial(built);
+        if (built?.chapters[0] && !corpusBootstrapped.current) {
+          corpusBootstrapped.current = true;
+          setActiveChapter(built.chapters[0].id);
+          setView("reader");
+        }
+      } catch (e) {
+        if (!cancelled) setCorpusError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setCorpusLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggle = (id: string) => setExpanded((e) => ({ ...e, [id]: !e[id] }));
 
-  const currentChapter = materials
+  const currentChapter = workspaceMaterials
     .flatMap((m) => m.chapters.map((c) => ({ ...c, material: m.name })))
     .find((c) => c.id === activeChapter);
 
@@ -94,7 +128,7 @@ function WorkspacePage() {
     }
   }, [messages, thinking, view]);
 
-  const sendChat = (textArg?: string) => {
+  const sendChat = async (textArg?: string) => {
     const text = (textArg ?? chatInput).trim();
     if (!text) return;
     setView("chat");
@@ -102,25 +136,46 @@ function WorkspacePage() {
     setChatInput("");
     setThinking(true);
 
-    setTimeout(() => {
-      const reply = fakeReply(text, currentChapter);
-      const id = crypto.randomUUID();
+    try {
+      const res = await postChat({
+        message: text,
+        session_id: sessionId,
+        course_context: currentChapter
+          ? {
+              lesson_title: currentChapter.name,
+              course_name: currentChapter.material,
+              ...(currentChapter.sourceFilename
+                ? { allowed_sources: [currentChapter.sourceFilename] }
+                : {}),
+            }
+          : undefined,
+      });
+      setSessionId(res.session_id);
+      const reply =
+        res.errors?.length && !res.reply?.trim()
+          ? `Error: ${res.errors.join("; ")}`
+          : [res.reply, ...(res.warnings?.length ? [`\n\n_${res.warnings.join(" ")}_`] : [])].join(
+              "",
+            );
+      setMessages((m) => [
+        ...m,
+        { id: crypto.randomUUID(), role: "bamboo", text: reply, streaming: false },
+      ]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setMessages((m) => [
+        ...m,
+        {
+          id: crypto.randomUUID(),
+          role: "bamboo",
+          text:
+            `Could not reach the AI backend (${msg}). Start the API: \`uvicorn api.main:app --reload --port 8000\` from the greenNovation folder.`,
+          streaming: false,
+        },
+      ]);
+    } finally {
       setThinking(false);
-      setMessages((m) => [...m, { id, role: "bamboo", text: "", streaming: true }]);
-      const words = reply.split(" ");
-      let i = 0;
-      const interval = setInterval(() => {
-        i++;
-        setMessages((m) =>
-          m.map((msg) =>
-            msg.id === id
-              ? { ...msg, text: words.slice(0, i).join(" "), streaming: i < words.length }
-              : msg,
-          ),
-        );
-        if (i >= words.length) clearInterval(interval);
-      }, 50);
-    }, 850);
+    }
   };
 
   return (
@@ -172,12 +227,35 @@ function WorkspacePage() {
         <aside className="col-span-12 lg:col-span-3 rounded-3xl bg-card border border-border p-4 shadow-card h-fit">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold text-sm">Materials</h3>
-            <button className="text-xs font-semibold text-primary inline-flex items-center gap-1 hover:underline">
+            <button
+              type="button"
+              className="text-xs font-semibold text-primary inline-flex items-center gap-1 hover:underline opacity-60 cursor-not-allowed"
+              title="Upload is not wired yet — add files to greenNovation/data and rebuild the index"
+            >
               <Upload className="h-3.5 w-3.5" /> Upload
             </button>
           </div>
+          {corpusLoading && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Loading your documents…
+            </div>
+          )}
+          {corpusError && (
+            <p className="text-[11px] text-muted-foreground mb-3 rounded-lg bg-muted/50 px-2 py-1.5">
+              Could not load documents ({corpusError}). Check that the API is running and{" "}
+              <code className="text-[10px]">VITE_API_PROXY_TARGET</code> matches its port.
+            </p>
+          )}
+          {!corpusLoading && !corpusError && workspaceMaterials.length === 0 && (
+            <p className="text-sm text-muted-foreground mb-3 rounded-xl border border-dashed border-border px-3 py-4">
+              No files in your corpus folder yet. Add PDFs to{" "}
+              <code className="text-xs bg-muted px-1 rounded">greenNovation/data</code> and refresh, or rebuild the
+              index if you add new sources.
+            </p>
+          )}
           <ul className="space-y-1">
-            {materials.map((m) => {
+            {workspaceMaterials.map((m) => {
               const open = expanded[m.id];
               return (
                 <li key={m.id}>
@@ -225,9 +303,9 @@ function WorkspacePage() {
                               <div className="min-w-0 flex-1">
                                 <div className="text-xs font-medium truncate">{c.name}</div>
                                 <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
-                                  <span>{c.pages} pages</span>
+                                  {c.pages > 0 ? <span>{c.pages} pages</span> : <span>·</span>}
                                   <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wider font-bold">
-                                    {c.kind === "pdf" ? "PDF" : c.kind === "mixed" ? "Mixed" : "Text"}
+                                    {chapterKindLabel(c.kind)}
                                   </span>
                                 </div>
                               </div>
@@ -246,16 +324,30 @@ function WorkspacePage() {
         {/* Reader / Chat panel + aligned sticky chat bar */}
         <div className="col-span-12 lg:col-span-6 flex flex-col gap-2 h-[calc(100vh-9rem)]">
           <section className="rounded-3xl bg-card border border-border shadow-card overflow-hidden flex flex-col flex-1 min-h-0">
+            {view === "reader" && !currentChapter && (
+              <div className="p-6 lg:p-8 flex-1 overflow-y-auto grid place-items-center min-h-[280px]">
+                <div className="text-center text-sm text-muted-foreground max-w-sm">
+                  <BookOpen className="h-10 w-10 mx-auto mb-3 text-primary/40" />
+                  <p>Select a document from Materials, or add files to your data folder and reload.</p>
+                </div>
+              </div>
+            )}
+
             {view === "reader" && currentChapter && (
-              <div className="p-6 lg:p-8 flex-1 overflow-y-auto">
+              <div className="p-6 lg:p-8 flex-1 overflow-y-auto min-w-0">
                 <div className="flex items-center justify-between text-xs text-muted-foreground mb-4">
                   <span className="inline-flex items-center gap-1.5">
-                    <BookOpen className="h-3.5 w-3.5" /> {currentChapter.pages} pages ·{" "}
+                    <BookOpen className="h-3.5 w-3.5" />
+                    {currentChapter.pages > 0 ? `${currentChapter.pages} pages · ` : ""}
                     {currentChapter.kind === "pdf"
                       ? "PDF document"
-                      : currentChapter.kind === "mixed"
-                        ? "Notes + PDF"
-                        : "Study notes"}
+                      : currentChapter.kind === "pptx"
+                        ? "PowerPoint"
+                        : currentChapter.kind === "mixed"
+                          ? "Notes + PDF"
+                          : currentChapter.kind === "download"
+                            ? "Download to open locally"
+                            : "Study notes"}
                   </span>
                 </div>
 
@@ -264,6 +356,24 @@ function WorkspacePage() {
                 )}
                 {currentChapter.kind === "pdf" && currentChapter.pdfUrl && (
                   <PdfViewer url={currentChapter.pdfUrl} />
+                )}
+                {currentChapter.kind === "pptx" && currentChapter.pptxUrl && (
+                  <PptxViewer url={currentChapter.pptxUrl} downloadName={currentChapter.name} />
+                )}
+                {currentChapter.kind === "download" && currentChapter.sourceFilename && (
+                  <div className="rounded-2xl border border-border bg-muted/30 p-6 text-center space-y-4">
+                    <Download className="h-10 w-10 mx-auto text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">
+                      This file type is not shown in the browser. Download it to open with the right app (e.g. PowerPoint).
+                    </p>
+                    <a
+                      href={corpusFileUrl(currentChapter.sourceFilename)}
+                      download={currentChapter.sourceFilename}
+                      className="inline-flex items-center justify-center rounded-xl gradient-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold shadow-glow hover:opacity-95"
+                    >
+                      Download {currentChapter.name}
+                    </a>
+                  </div>
                 )}
                 {currentChapter.kind === "mixed" && (
                   <div className="space-y-6">
@@ -292,7 +402,11 @@ function WorkspacePage() {
                   </div>
                   {messages.length > 0 && (
                     <button
-                      onClick={() => setMessages([])}
+                      onClick={() => {
+                        if (sessionId) void deleteSession(sessionId);
+                        setSessionId(null);
+                        setMessages([]);
+                      }}
                       className="text-xs font-semibold text-muted-foreground hover:text-foreground"
                     >
                       Clear
@@ -387,38 +501,20 @@ function WorkspacePage() {
             </div>
             <div className="p-5">
               {tab === "summary" && (
-                <ul className="space-y-3 text-sm">
-                  <li className="flex gap-2">
-                    <span className="text-primary font-bold">·</span>
-                    Eigenvectors are directions preserved by a linear map (only scaled).
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="text-primary font-bold">·</span>
-                    Eigenvalues come from solving the characteristic polynomial.
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="text-primary font-bold">·</span>
-                    Diagonalizable matrices have a full basis of eigenvectors.
-                  </li>
-                </ul>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Ask for a summary in chat — it will use your selected document and the course index when the API is
+                  running.
+                </p>
               )}
               {tab === "quiz" && (
-                <div className="space-y-3 text-sm">
-                  <div className="font-semibold">Q1. If Av = 5v, then 5 is the …</div>
-                  {["eigenvector", "eigenvalue", "determinant"].map((o) => (
-                    <button
-                      key={o}
-                      className="w-full text-left rounded-xl border border-border px-3 py-2 hover:border-primary/50 hover:bg-primary/5 transition"
-                    >
-                      {o}
-                    </button>
-                  ))}
-                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  For practice questions, use chat with prompts like “give me quiz questions on this PDF”. The tutor
+                  answers from your indexed materials.
+                </p>
               )}
               {tab === "explain" && (
-                <p className="text-sm leading-relaxed">
-                  Think of a globe spinning. The axis that doesn't move is an eigenvector — every
-                  other point rotates, but those on the axis only get stretched (or stay still).
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Use chat to request a simpler explanation of a passage or concept from the document you have open.
                 </p>
               )}
             </div>
