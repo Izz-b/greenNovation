@@ -11,6 +11,7 @@ import {
   Zap,
   GitBranch,
   Library,
+  CalendarDays,
 } from "lucide-react";
 import type { EnergySnapshot } from "@/lib/api";
 import type { SessionInsights } from "@/lib/parseSessionInsights";
@@ -103,6 +104,14 @@ function playBlip() {
   }
 }
 
+/** Result of POST /api/session/:id/end (planner run when study session ends). */
+export type SessionEndPlannerInfo = {
+  planning_task?: Record<string, unknown> | null;
+  status?: string;
+  skipped?: boolean;
+  reason?: string;
+} | null;
+
 type StudyNotificationsProps = {
   /** From API readiness and/or parsed tutor reply lines. */
   sessionInsights?: SessionInsights | null;
@@ -114,6 +123,8 @@ type StudyNotificationsProps = {
   routingSummary?: RoutingSummary | null;
   /** Parsed RAG citations from the assistant message (duplicated in sidebar). */
   sources?: string[];
+  /** Planner output after ending a study session (cleared on next chat send). */
+  sessionEndPlanner?: SessionEndPlannerInfo;
 };
 
 export function StudyNotifications({
@@ -122,6 +133,7 @@ export function StudyNotifications({
   energySnapshot = null,
   routingSummary = null,
   sources = [],
+  sessionEndPlanner = null,
 }: StudyNotificationsProps) {
   // visible[0] = top, visible[1] = bottom
   const [visible, setVisible] = useState<Notif[]>(() => [make(0), make(1)]);
@@ -216,9 +228,17 @@ export function StudyNotifications({
   if (energySnapshot?.reuseCachedRag) reuseTags.push("Cached retrieval");
   if (energySnapshot?.reuseReadinessSignal) reuseTags.push("Readiness skipped");
 
+  const planTask = sessionEndPlanner?.planning_task;
+  const todaySummary =
+    planTask && typeof planTask.today_summary === "string" ? planTask.today_summary.trim() : "";
+  const tomorrowPlan = Array.isArray(planTask?.tomorrow_plan) ? planTask.tomorrow_plan : [];
+  const recommendedDuration =
+    typeof planTask?.recommended_duration === "number" ? planTask.recommended_duration : null;
+  const planIntensity = typeof planTask?.intensity === "string" ? planTask.intensity : null;
+  const showPlannerCard = Boolean(sessionEndPlanner);
+
   return (
-    <div className="flex flex-col h-full min-h-0 gap-0">
-      <div className="shrink-0 space-y-3">
+    <div className="space-y-3">
       {energySnapshot && (
         <div className="relative rounded-2xl bg-card border border-border shadow-card p-4 flex items-start gap-3">
           <div
@@ -295,15 +315,77 @@ export function StudyNotifications({
           </div>
         </div>
       )}
-      </div>
-      <div className="flex flex-col flex-1 min-h-0 min-w-0 mt-3">
-        <div className="flex items-center gap-2 px-1 shrink-0 pb-2">
-          <Sparkles className="h-3.5 w-3.5 text-primary" />
-          <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
-            Live insights
-          </span>
+      {showPlannerCard && (
+        <div className="relative rounded-2xl bg-card border border-border shadow-card p-4 flex items-start gap-3">
+          <div
+            className={`h-10 w-10 rounded-full border grid place-items-center shrink-0 ${TONE.primary}`}
+          >
+            <CalendarDays className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-bold text-primary">Study session plan</div>
+            {sessionEndPlanner?.skipped ? (
+              <p className="text-[10px] text-muted-foreground mt-1.5 leading-snug">
+                {sessionEndPlanner.reason
+                  ? String(sessionEndPlanner.reason)
+                  : "Planner did not regenerate a new plan (cadence: already generated today). Your session still ended."}
+              </p>
+            ) : (
+              <>
+                {todaySummary ? (
+                  <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">{todaySummary}</p>
+                ) : null}
+                {tomorrowPlan.length > 0 ? (
+                  <ul className="mt-2 space-y-1.5 text-[10px] text-foreground/90">
+                    {tomorrowPlan.map((item, i) => {
+                      const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+                      const task = typeof row.task === "string" ? row.task : `Task ${i + 1}`;
+                      const mins = typeof row.duration_minutes === "number" ? row.duration_minutes : null;
+                      const pri = typeof row.priority === "string" ? row.priority : null;
+                      return (
+                        <li
+                          key={`${i}-${task.slice(0, 24)}`}
+                          className="border-l-2 border-primary/30 pl-2 leading-snug"
+                        >
+                          <span className="font-medium">{task}</span>
+                          {mins != null ? (
+                            <span className="text-muted-foreground"> · {mins} min</span>
+                          ) : null}
+                          {pri ? (
+                            <span className="text-[9px] uppercase text-muted-foreground ml-1">({pri})</span>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : !todaySummary ? (
+                  <p className="text-[10px] text-muted-foreground mt-1.5 leading-snug">
+                    Session ended. No structured plan was returned — check the API or try again later.
+                  </p>
+                ) : null}
+                {(recommendedDuration != null || planIntensity) && (
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    {recommendedDuration != null ? (
+                      <span>Suggested block: ~{recommendedDuration} min</span>
+                    ) : null}
+                    {recommendedDuration != null && planIntensity ? " · " : null}
+                    {planIntensity ? (
+                      <span className="capitalize">Intensity: {planIntensity}</span>
+                    ) : null}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         </div>
-      <div className="relative space-y-3 flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-0.5 [scrollbar-width:thin]">
+      )}
+      <div className="flex items-center gap-2 px-1 pt-1">
+        <Sparkles className="h-3.5 w-3.5 text-primary" />
+        <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
+          Live insights
+        </span>
+      </div>
+      <div className="relative space-y-3">
         {insightRows.map((row, idx) => {
           const Icon = row.icon;
           return (
@@ -377,7 +459,6 @@ export function StudyNotifications({
             </div>
           );
         })}
-      </div>
       </div>
       <style>{`
         @keyframes notif-enter {

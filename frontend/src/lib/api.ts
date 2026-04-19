@@ -64,7 +64,33 @@ export async function postChat(body: {
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  await fetch(`${base}/api/session/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  const r = await fetch(`${base}/api/session/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(t || `${r.status} ${r.statusText}`);
+  }
+}
+
+/** Run planner on session context, then remove server session (workspace “end study session”). */
+export type FinalizeSessionResponse = {
+  ok: boolean;
+  planner: {
+    status: string;
+    skipped?: boolean;
+    reason?: string;
+    planning_task?: Record<string, unknown> | null;
+  };
+};
+
+export async function finalizeSession(sessionId: string): Promise<FinalizeSessionResponse> {
+  const r = await fetch(`${base}/api/session/${encodeURIComponent(sessionId)}/end`, {
+    method: "POST",
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(t || `${r.status} ${r.statusText}`);
+  }
+  return r.json() as Promise<FinalizeSessionResponse>;
 }
 
 export type CorpusFile = {

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AppLayout } from "@/components/AppLayout";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FileText,
   Sparkles,
@@ -22,12 +22,13 @@ import type { Material } from "@/data/chapters";
 import { RichContent } from "@/components/RichContent";
 import { PdfViewer } from "@/components/PdfViewer";
 import { PptxViewer } from "@/components/PptxViewer";
-import { StudyNotifications } from "@/components/StudyNotifications";
+import { StudyNotifications, type SessionEndPlannerInfo } from "@/components/StudyNotifications";
 import { ChatBubble, TypingDots } from "@/components/FloatingBamboo";
 import {
   corpusFileUrl,
   deleteSession,
   fetchCorpusFiles,
+  finalizeSession,
   postChat,
   type EnergySnapshot,
   type PromptHint,
@@ -62,6 +63,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
+import { useOpenBreathingBreak } from "@/context/BreathingBreakContext";
 
 export const Route = createFileRoute("/workspace")({
   head: () => ({
@@ -136,7 +138,17 @@ function chapterKindLabel(kind: string): string {
   return kind;
 }
 
+/** Study block length before auto end + breathing break (same order of magnitude as the 5 min chill modal). */
+const WORKSPACE_STUDY_COUNTDOWN_SECONDS = 5 * 60;
+
+function formatCountdown(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
 function WorkspacePage() {
+  const openBreathingBreak = useOpenBreathingBreak();
   const [tab, setTab] = useState<ToolKind>("summary");
   const [draftSummary, setDraftSummary] = useState("");
   const [draftQuiz, setDraftQuiz] = useState("");
@@ -157,7 +169,8 @@ function WorkspacePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [thinking, setThinking] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(() => getStoredChatSessionId());
+  /** Hydration-safe: localStorage only read after mount (see useEffect below). */
+  const [sessionId, setSessionId] = useState<string | null>(null);
   /** From API readiness + optional reply parsing — Live insights column */
   const [sessionInsights, setSessionInsights] = useState<SessionInsights | null>(null);
   /** Bumps when insights update so cards replay the “popup” animation */
@@ -168,39 +181,128 @@ function WorkspacePage() {
   const [routingSnapshot, setRoutingSnapshot] = useState<RoutingSummary | null>(null);
   /** RAG citations parsed from the assistant reply (shown in sidebar, stripped from bubble) */
   const [sourcesList, setSourcesList] = useState<string[]>([]);
-  /** Tracks whether the learner is in an active study session (synced across refresh if session id exists). */
-  const [studySessionActive, setStudySessionActive] = useState(() =>
-    Boolean(getStoredChatSessionId()),
-  );
+  /** Tracks whether the learner is in an active study session (synced after mount from localStorage). */
+  const [studySessionActive, setStudySessionActive] = useState(false);
+  /** Counts down while study session is on; at 0 we finalize + show breathing break. */
+  const [studyCountdownSeconds, setStudyCountdownSeconds] = useState<number | null>(null);
+  const timerExpiryHandled = useRef(false);
+  const endingFromTimer = useRef(false);
+  /** Planner output from POST /api/session/:id/end — shown until the user sends another chat message. */
+  const [sessionEndPlanner, setSessionEndPlanner] = useState<SessionEndPlannerInfo>(null);
   const [endSessionDialogOpen, setEndSessionDialogOpen] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
-  const endStudySession = () => {
-    if (sessionId) void deleteSession(sessionId);
+  useEffect(() => {
+    const sid = getStoredChatSessionId();
+    setSessionId(sid);
+    if (sid) {
+      setStudySessionActive(true);
+      timerExpiryHandled.current = false;
+      setStudyCountdownSeconds(WORKSPACE_STUDY_COUNTDOWN_SECONDS);
+    }
+  }, []);
+
+  const clearLocalStudySessionState = () => {
     setStoredChatSessionId(null);
     setSessionId(null);
     setMessages([]);
     setSessionInsights(null);
     setInsightsEpoch(0);
+    setEnergySnapshot(null);
+    setRoutingSnapshot(null);
+    setSourcesList([]);
     setStudySessionActive(false);
+    setStudyCountdownSeconds(null);
+    timerExpiryHandled.current = false;
   };
+
+  /** Ends session on server: runs planner agent, then deletes session; falls back to DELETE if /end fails. */
+  const finalizeEndStudySession = useCallback(
+    async (opts?: { withBreathingBreak?: boolean }) => {
+      const showBreak = opts?.withBreathingBreak !== false;
+      const sid = sessionId;
+      if (sid) {
+        try {
+          const res = await finalizeSession(sid);
+          setSessionEndPlanner({
+            planning_task: res.planner?.planning_task ?? null,
+            status: res.planner?.status,
+            skipped: res.planner?.skipped,
+            reason: typeof res.planner?.reason === "string" ? res.planner.reason : undefined,
+          });
+        } catch {
+          try {
+            await deleteSession(sid);
+          } catch {
+            /* offline — local state still clears */
+          }
+          setSessionEndPlanner(null);
+        }
+      }
+      clearLocalStudySessionState();
+      if (showBreak) {
+        openBreathingBreak?.();
+      }
+    },
+    [sessionId, openBreathingBreak],
+  );
 
   const onStudySessionSwitch = (checked: boolean) => {
     if (checked) {
+      timerExpiryHandled.current = false;
       setStudySessionActive(true);
+      setStudyCountdownSeconds(WORKSPACE_STUDY_COUNTDOWN_SECONDS);
       return;
     }
     if (!sessionId && messages.length === 0) {
       setStudySessionActive(false);
+      setStudyCountdownSeconds(null);
       return;
     }
     setEndSessionDialogOpen(true);
   };
 
-  const confirmEndStudySession = () => {
-    endStudySession();
-    setEndSessionDialogOpen(false);
+  const confirmEndStudySession = async () => {
+    if (endingSession) return;
+    setEndingSession(true);
+    try {
+      await finalizeEndStudySession({ withBreathingBreak: true });
+    } finally {
+      setEndingSession(false);
+      setEndSessionDialogOpen(false);
+    }
   };
+
+  const timerExpiredRef = useRef<() => Promise<void>>(async () => {});
+
+  useEffect(() => {
+    timerExpiredRef.current = async () => {
+      if (timerExpiryHandled.current || endingSession || endingFromTimer.current) return;
+      timerExpiryHandled.current = true;
+      endingFromTimer.current = true;
+      try {
+        await finalizeEndStudySession({ withBreathingBreak: true });
+      } finally {
+        endingFromTimer.current = false;
+      }
+    };
+  }, [finalizeEndStudySession, endingSession]);
+
+  useEffect(() => {
+    if (!studySessionActive) return;
+    const id = window.setInterval(() => {
+      setStudyCountdownSeconds((prev) => {
+        if (prev === null || prev <= 0) return prev;
+        if (prev === 1) {
+          queueMicrotask(() => void timerExpiredRef.current());
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [studySessionActive]);
 
   useEffect(() => {
     let cancelled = false;
@@ -264,6 +366,7 @@ function WorkspacePage() {
     const tool = opts?.tool ?? null;
     const promptHint = opts?.promptHint ?? null;
     if (!apiMessage.trim()) return;
+    setSessionEndPlanner(null);
     setView("chat");
     setMessages((m) => [...m, { id: crypto.randomUUID(), role: "user", text: userDisplay }]);
     setThinking(true);
@@ -375,7 +478,7 @@ function WorkspacePage() {
   };
 
   return (
-    <div className="max-w-[1400px] mx-auto flex flex-col min-h-0 lg:h-[calc(100dvh-11rem)] lg:overflow-hidden">
+    <div className="max-w-[1400px] mx-auto flex flex-col min-h-0 lg:h-[calc(100dvh-9.5rem)] lg:max-h-[calc(100dvh-9.5rem)] lg:overflow-hidden">
       <div className="flex items-center justify-between mb-3 gap-4 shrink-0">
         <div className="min-w-0">
           <div className="text-[10px] uppercase tracking-[0.2em] text-primary font-semibold">
@@ -416,32 +519,45 @@ function WorkspacePage() {
               )}
             </button>
           </div>
-          <div className="flex items-center gap-2 rounded-xl border border-border bg-card/80 px-2.5 py-1.5 shadow-sm">
-            <CircleStop
-              className={`h-3.5 w-3.5 shrink-0 ${studySessionActive ? "text-primary" : "text-muted-foreground"}`}
-              aria-hidden
-            />
-            <Switch
-              id="workspace-study-session"
-              checked={studySessionActive}
-              onCheckedChange={onStudySessionSwitch}
-              aria-label="Study session active"
-            />
-            <label
-              htmlFor="workspace-study-session"
-              className="text-[11px] font-semibold text-foreground cursor-pointer select-none whitespace-nowrap"
-            >
-              Study session
-            </label>
+          <div className="flex flex-col items-end gap-0.5">
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-card/80 px-2.5 py-1.5 shadow-sm">
+              <CircleStop
+                className={`h-3.5 w-3.5 shrink-0 ${studySessionActive ? "text-primary" : "text-muted-foreground"}`}
+                aria-hidden
+              />
+              <Switch
+                id="workspace-study-session"
+                checked={studySessionActive}
+                onCheckedChange={onStudySessionSwitch}
+                aria-label="Study session active"
+              />
+              <label
+                htmlFor="workspace-study-session"
+                className="text-[11px] font-semibold text-foreground cursor-pointer select-none whitespace-nowrap"
+              >
+                Study session
+              </label>
+              {studySessionActive && studyCountdownSeconds !== null && studyCountdownSeconds > 0 ? (
+                <span
+                  className="text-[11px] font-mono tabular-nums font-semibold text-primary shrink-0 min-w-[3.25rem] text-right"
+                  aria-live="polite"
+                >
+                  {formatCountdown(studyCountdownSeconds)}
+                </span>
+              ) : null}
+            </div>
+            {studySessionActive && studyCountdownSeconds !== null && studyCountdownSeconds > 0 ? (
+              <p className="text-[9px] text-muted-foreground max-w-[14rem] text-right leading-tight">
+                Timer resets when you turn the session on again. At zero (or if you end early), your session closes and
+                the breathing break opens.
+              </p>
+            ) : null}
           </div>
         </div>
       </div>
 
-      <p className="text-[11px] text-muted-foreground -mt-1 mb-3 max-w-xl">
-        Turn off when you are finished to end the chat, clear insights, and drop the server session.
-      </p>
 
-      <div className="grid grid-cols-12 gap-5">
+      <div className="grid grid-cols-12 gap-5 lg:flex-1 lg:min-h-0 lg:grid-rows-[minmax(0,1fr)]">
         {/* Materials with expandable chapters */}
         <aside className="col-span-12 lg:col-span-3 rounded-3xl bg-card border border-border p-4 shadow-card lg:min-h-0 lg:max-h-full lg:overflow-y-auto">
           <div className="flex items-center justify-between mb-3">
@@ -621,17 +737,6 @@ function WorkspacePage() {
                   </div>
                   {messages.length > 0 && (
                     <button
-                      onClick={() => {
-                        if (sessionId) void deleteSession(sessionId);
-                        setStoredChatSessionId(null);
-                        setSessionId(null);
-                        setMessages([]);
-                        setSessionInsights(null);
-                        setInsightsEpoch(0);
-                        setEnergySnapshot(null);
-                        setRoutingSnapshot(null);
-                        setSourcesList([]);
-                      }}
                       type="button"
                       onClick={() => setEndSessionDialogOpen(true)}
                       className="text-xs font-semibold text-muted-foreground hover:text-foreground"
@@ -711,7 +816,7 @@ function WorkspacePage() {
         </div>
 
         {/* AI tools + notifications */}
-        <aside className="col-span-12 lg:col-span-3 flex flex-col gap-4 min-h-0 lg:min-h-0 lg:max-h-full">
+        <aside className="col-span-12 lg:col-span-3 flex flex-col gap-3 min-h-0 lg:h-full lg:min-h-0 lg:max-h-full">
           <div className="rounded-3xl bg-card border border-border shadow-card overflow-hidden shrink-0">
             <div className="flex p-1 bg-muted/60">
               {(
@@ -793,13 +898,14 @@ function WorkspacePage() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-width:thin] pr-0.5 pb-2">
             <StudyNotifications
               sessionInsights={sessionInsights}
               insightsEpoch={insightsEpoch}
               energySnapshot={energySnapshot}
               routingSummary={routingSnapshot}
               sources={sourcesList}
+              sessionEndPlanner={sessionEndPlanner}
             />
           </div>
         </aside>
@@ -810,13 +916,22 @@ function WorkspacePage() {
           <AlertDialogHeader>
             <AlertDialogTitle>End study session?</AlertDialogTitle>
             <AlertDialogDescription>
-              This clears the conversation, resets live insights, deletes the AI session on the server, and removes
-              the saved session link (including from the dashboard readiness view). You can start a new session anytime.
+              This clears the conversation, resets live insights, runs the planner, deletes the AI session on the server,
+              and opens a short breathing break. Turn the study session on again to restart the timer from{" "}
+              {Math.floor(WORKSPACE_STUDY_COUNTDOWN_SECONDS / 60)} minutes.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep studying</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmEndStudySession}>End session</AlertDialogAction>
+            <AlertDialogCancel disabled={endingSession}>Keep studying</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={endingSession}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmEndStudySession();
+              }}
+            >
+              {endingSession ? "Running planner…" : "End session"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

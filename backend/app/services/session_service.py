@@ -18,6 +18,21 @@ _EPHEMERAL = frozenset(
 
 _sessions: dict[str, dict[str, Any]] = {}
 
+# Last planner run after session end (in-memory; optional GET for dashboard / debugging).
+_latest_planning_after_session: dict[str, Any] | None = None
+
+
+def store_planning_after_session_end(snapshot: dict[str, Any]) -> None:
+    """Persist latest planner output from POST /api/session/{id}/end."""
+    global _latest_planning_after_session
+    _latest_planning_after_session = copy.deepcopy(snapshot)
+
+
+def get_latest_planning_after_session() -> dict[str, Any] | None:
+    if _latest_planning_after_session is None:
+        return None
+    return copy.deepcopy(_latest_planning_after_session)
+
 
 def default_session_state() -> dict[str, Any]:
     return {

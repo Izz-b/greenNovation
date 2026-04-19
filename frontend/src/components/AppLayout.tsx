@@ -22,6 +22,7 @@ import {
   BreathingBreakButton,
   BreathingBreakIconButton,
 } from "@/components/BreathingBreak";
+import { BreathingBreakProvider } from "@/context/BreathingBreakContext";
 import { CalendarDays } from "lucide-react";
 
 const navItems = [
@@ -45,6 +46,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const expanded = hoverExpanded || mobileOpen;
 
   return (
+    <BreathingBreakProvider openBreathingBreak={() => setBreakOpen(true)}>
     <div className="min-h-screen flex w-full">
       {/* Mobile overlay */}
       {mobileOpen && (
@@ -189,5 +191,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <TreeRewardToast />
       <BreathingBreak open={breakOpen} onOpenChange={setBreakOpen} />
     </div>
+    </BreathingBreakProvider>
   );
 }
