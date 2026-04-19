@@ -19,7 +19,7 @@ def get_llm(energy: dict):
 # CONTEXT BUILDER
 
 
-MAX_CHARS = 800
+MAX_CHARS = 600
 
 def build_context(chunks: List[Dict], max_chars: int) -> str:
     context = ""
@@ -52,32 +52,29 @@ def build_history(session_history: List[Dict], max_turns: int = 5) -> str:
 # PROFILE ADAPTATION
 
 
-def _profile_adaptation_block(state: dict) -> str:
-    pv = state.get("profile_vector") or {}
-    if not pv:
+def _profile_adaptation_block(profile: dict) -> str:
+    if not profile:
         return ""
 
-    tags = pv.get("adaptation_tags") or []
+    tags = profile.get("adaptation_tags") or []
     tags_s = ", ".join(tags) if tags else "none"
-    reason = (pv.get("reasoning_summary") or "").strip()
+    reason = (profile.get("reasoning_summary") or "").strip()
 
     if len(reason) > 400:
         reason = reason[:400] + "…"
 
     return f"""
 TEACHING STYLE (adapt tone/format only):
-- Explanation style: {pv.get("preferred_explanation_style", "balanced")}
-- Format: {pv.get("preferred_format", "clear")}
-- Examples domain: {pv.get("preferred_examples_domain", "general")}
-- Pace: {pv.get("pace", "medium")}
+- Explanation style: {profile.get("preferred_explanation_style", "balanced")}
+- Format: {profile.get("preferred_format", "clear")}
+- Examples domain: {profile.get("preferred_examples_domain", "general")}
+- Pace: {profile.get("pace", "medium")}
 - Tags: {tags_s}
 {f"- Notes: {reason}" if reason else ""}
 """
 
 
-def _readiness_adaptation_block(state: AgentContext) -> str:
-    """Steer workload/tone based on readiness signal."""
-    readiness = state.get("readiness_signal") or {}
+def _readiness_adaptation_block(readiness: dict) -> str:
     if not readiness:
         return ""
 
@@ -96,12 +93,9 @@ READINESS SIGNAL (adapt teaching load and tone):
 """
 
 
-def _derive_behavior_settings(state: AgentContext) -> Dict[str, Any]:
-    """Derive final behavior controls from energy + readiness signals."""
-    energy = state.get("energy_decision") or {}
-    readiness = state.get("readiness_signal") or {}
-
+def _derive_behavior_settings(energy: dict, readiness: dict) -> Dict[str, Any]:
     energy_mode = energy.get("mode", "balanced")
+
     difficulty = "medium"
     if energy_mode == "light":
         difficulty = "easy"
@@ -132,38 +126,42 @@ def _derive_behavior_settings(state: AgentContext) -> Dict[str, Any]:
     }
 
 
-def build_prompt(state: dict) -> str:
-
+def build_prompt(state: AgentContext) -> str:
     query = state.get("query", "")
-    intent = state.get("routing", {}).get("intent", "learn_concept")
-    chunks = state.get("retrieved_chunks", [])
     summary = state.get("conversation_summary", "")
     history = build_history(state.get("session_history", []))
 
-    energy = state.get("energy_decision", {})
+    merged = state.get("merged_signal_bundle", {}) or {}
+    draft = state.get("response_draft", {}) or {}
+
+    intent = merged.get("intent", "learn_concept")
+    chunks = merged.get("retrieved_chunks", [])
+    profile = merged.get("profile_vector", {}) or {}
+    readiness = merged.get("readiness_signal", {}) or {}
+    energy = merged.get("energy_decision", {}) or {}
 
     context = build_context(
         chunks,
         energy.get("chunk_truncation_chars", MAX_CHARS)
     )
 
-    profile_block = _profile_adaptation_block(state)
-    readiness_block = _readiness_adaptation_block(state)
-    behavior = _derive_behavior_settings(state)
+    profile_block = _profile_adaptation_block(profile)
+    readiness_block = _readiness_adaptation_block(readiness)
+    behavior = _derive_behavior_settings(energy, readiness)
+
     difficulty = behavior["difficulty"]
     style_hint = behavior["style_hint"]
     suggested_minutes = behavior["suggested_minutes"]
     break_needed = behavior["break_needed"]
 
-    # ENERGY CONTROLS
-
-
     mode = energy.get("mode", "balanced")
     generate_quiz = energy.get("generate_quiz", True)
     depth = energy.get("response_depth", "medium")
 
+    answer_type = draft.get("answer_type", "explanation")
+    structure = draft.get("structure", "guided_explanation")
+    tone = draft.get("tone", "adaptive")
 
-    # response length
     if depth == "short":
         length_instruction = "Keep the answer VERY concise."
     elif depth == "long":
@@ -171,11 +169,7 @@ def build_prompt(state: dict) -> str:
     else:
         length_instruction = "Provide a balanced explanation."
 
-
-    # TASK LOGIC
- 
-
-    if intent == "practice" and generate_quiz:
+    if answer_type == "exercise" and generate_quiz:
         task_instruction = f"""
 Generate EXACTLY 3 questions.
 
@@ -193,59 +187,67 @@ Rules:
 - Use ONLY the context
 - No extra text
 """
-
-    elif intent == "practice" and not generate_quiz:
+    elif answer_type == "exercise" and not generate_quiz:
         task_instruction = """
 Explain the concept instead of generating questions (energy-saving mode).
 """
-
-    elif intent == "revise":
+    elif answer_type == "summary_with_questions":
         task_instruction = """
 Provide:
 1. A short summary
 2. 3 revision questions with answers
 """
-
-    elif intent == "mixed":
+    elif answer_type == "explanation_with_questions":
         task_instruction = """
 Provide:
 1. A clear explanation
 2. 2 practice questions with answers
 """
-
+    elif answer_type == "plan":
+        task_instruction = """
+Provide a structured study plan.
+"""
     else:
         task_instruction = "Provide a clear explanation with examples."
 
     return f"""
 You are an academic assistant.
+Use only the provided course context.
+If unsupported by context, say: "I don't know based on the course material."
 
-STRICT RULES:
-- Use ONLY the provided context
-- Do NOT use outside knowledge
-- If not found, say: "I don't know based on the course material"
+TASK:
+intent={intent}
+answer_type={answer_type}
+structure={structure}
+tone={tone}
+energy_mode={mode}
+depth={depth}
 
 {profile_block}
 {readiness_block}
-BEHAVIOR RULES:
-- {style_hint}
-- Target response depth appropriate for a {suggested_minutes}-minute study session.
-- {"Include a short break reminder at the end." if break_needed else "No break reminder needed unless user asks."}
 
-CONVERSATION SUMMARY:
-{summary}
+BEHAVIOR:
+{style_hint}
+session_minutes={suggested_minutes}
+break_needed={break_needed}
 
-RECENT HISTORY:
-{history}
-
+LENGTH:
 {length_instruction}
 
-{task_instruction}
+INSTRUCTION:
+{task_instruction.strip()}
+
+SUMMARY:
+{summary[:300]}
+
+HISTORY:
+{history}
+
+QUESTION:
+{query}
 
 CONTEXT:
 {context}
-
-CURRENT QUESTION:
-{query}
 
 ANSWER:
 """
@@ -271,9 +273,8 @@ def format_sources(chunks: List[Dict]) -> List[str]:
 # OUTPUT PARSER
 
 
-def parse_output(answer: str, intent: str) -> Dict[str, Any]:
-
-    if intent == "practice":
+def parse_output(answer: str, answer_type: str) -> Dict[str, Any]:
+    if answer_type == "exercise":
         try:
             return {
                 "answer_type": "exercise",
@@ -285,11 +286,14 @@ def parse_output(answer: str, intent: str) -> Dict[str, Any]:
                 "content": answer
             }
 
-    elif intent == "revise":
+    elif answer_type == "summary_with_questions":
         return {"answer_type": "summary_with_questions", "content": answer}
 
-    elif intent == "mixed":
+    elif answer_type == "explanation_with_questions":
         return {"answer_type": "explanation_with_questions", "content": answer}
+
+    elif answer_type == "plan":
+        return {"answer_type": "plan", "content": answer}
 
     return {"answer_type": "explanation", "content": answer}
 
@@ -315,12 +319,16 @@ Updated summary (short, focused on learning progress):
 # LEARNING AGENT NODE
 
 def learning_agent(state: AgentContext) -> AgentContext:
-
     try:
-        chunks = state.get("retrieved_chunks", [])
-        intent = state.get("routing", {}).get("intent", "learn_concept")
-        behavior = _derive_behavior_settings(state)
-        energy = state.get("energy_decision", {})
+        merged = state.get("merged_signal_bundle", {}) or {}
+        draft = state.get("response_draft", {}) or {}
+
+        chunks = merged.get("retrieved_chunks", [])
+        intent = merged.get("intent", "learn_concept")
+        readiness = merged.get("readiness_signal", {}) or {}
+        energy = merged.get("energy_decision", {}) or {}
+
+        behavior = _derive_behavior_settings(energy, readiness)
 
         # ---- fallback ----
         if not chunks:
@@ -338,7 +346,9 @@ def learning_agent(state: AgentContext) -> AgentContext:
         response = llm.invoke(prompt)
         answer = response.content.strip()
 
-        parsed = parse_output(answer, intent)
+        answer_type = draft.get("answer_type", "explanation")
+        parsed = parse_output(answer, answer_type)
+
         sources = format_sources(chunks)
 
         include_sources = energy.get("include_sources", True)
@@ -347,7 +357,7 @@ def learning_agent(state: AgentContext) -> AgentContext:
         # FINAL RESPONSE
         # =========================
 
-        if intent == "practice" and isinstance(parsed["content"], list):
+        if answer_type == "exercise" and isinstance(parsed["content"], list):
             final_response = parsed["content"]
             assistant_text = json.dumps(final_response)
 
@@ -398,17 +408,17 @@ def learning_agent(state: AgentContext) -> AgentContext:
             )
         else:
             updated_summary = previous_summary
-
+        existing_draft = state.get("response_draft", {}) or {}
         return {
             "final_response": final_response,
             "session_history": session_history,
             "conversation_summary": updated_summary,
 
             "response_draft": {
-                "answer_type": parsed["answer_type"],
-                "structure": "contextual_rag",
-                "tone": behavior["support_tone"],
-            },
+    "answer_type": parsed["answer_type"],
+    "structure": existing_draft.get("structure", "contextual_rag"),
+    "tone": existing_draft.get("tone", behavior["support_tone"]),
+},
 
             "agent_runs": {
                 **state.get("agent_runs", {}),
