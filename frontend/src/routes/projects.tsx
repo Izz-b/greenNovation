@@ -15,6 +15,19 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { awardTree } from "@/lib/treeInventory";
+import { useProjects } from "@/context/ProjectsContext";
+import { createEmptyProject, projectProgressPercent, type Milestone, type Project } from "@/data/projects";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/projects")({
   head: () => ({
@@ -38,65 +51,22 @@ export const Route = createFileRoute("/projects")({
   ),
 });
 
-type Milestone = { id: string; name: string; done: boolean };
-type Project = {
-  id: string;
-  name: string;
-  tag: string;
-  due: string;
-  nextStep: string;
-  notes: number;
-  milestones: Milestone[];
-};
-
-const INITIAL_PROJECTS: Project[] = [
-  {
-    id: "ml",
-    name: "ML Capstone · Image Classifier",
-    tag: "AI / CS",
-    due: "May 12",
-    nextStep: "Train baseline CNN on cleaned dataset",
-    notes: 4,
-    milestones: [
-      { id: "ml-1", name: "Dataset collection", done: true },
-      { id: "ml-2", name: "Preprocessing pipeline", done: true },
-      { id: "ml-3", name: "Baseline model", done: false },
-      { id: "ml-4", name: "Hyperparameter tuning", done: false },
-      { id: "ml-5", name: "Final report", done: false },
-    ],
-  },
-  {
-    id: "hist",
-    name: "History Essay — Industrial Revolution",
-    tag: "Humanities",
-    due: "May 18",
-    nextStep: "Outline three central arguments with sources",
-    notes: 2,
-    milestones: [
-      { id: "h-1", name: "Research", done: true },
-      { id: "h-2", name: "Outline", done: false },
-      { id: "h-3", name: "First draft", done: false },
-      { id: "h-4", name: "Final draft", done: false },
-    ],
-  },
-  {
-    id: "phys",
-    name: "Group Lab Report — Thermodynamics",
-    tag: "Physics",
-    due: "Apr 28",
-    nextStep: "Polish discussion section & format references",
-    notes: 7,
-    milestones: [
-      { id: "p-1", name: "Experiment", done: true },
-      { id: "p-2", name: "Data analysis", done: true },
-      { id: "p-3", name: "Draft", done: true },
-      { id: "p-4", name: "Review & submit", done: false },
-    ],
-  },
-];
+function defaultDueISO() {
+  const d = new Date();
+  d.setDate(d.getDate() + 14);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 function ProjectsPage() {
-  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
+  const { projects, setProjects } = useProjects();
+  const [newOpen, setNewOpen] = useState(false);
+  const [formName, setFormName] = useState("");
+  const [formTag, setFormTag] = useState("");
+  const [formDue, setFormDue] = useState(defaultDueISO);
+  const [formNext, setFormNext] = useState("");
   const [pending, setPending] = useState<{
     projectId: string;
     milestoneId: string;
@@ -137,6 +107,27 @@ function ProjectsPage() {
     setPending(null);
   };
 
+  const openNewDialog = () => {
+    setFormName("");
+    setFormTag("");
+    setFormDue(defaultDueISO());
+    setFormNext("");
+    setNewOpen(true);
+  };
+
+  const submitNewProject = () => {
+    const name = formName.trim();
+    if (!name) return;
+    const created = createEmptyProject({
+      name,
+      tag: formTag,
+      dueISO: formDue,
+      nextStep: formNext,
+    });
+    setProjects((prev) => [...prev, created]);
+    setNewOpen(false);
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <PageHeader
@@ -144,10 +135,14 @@ function ProjectsPage() {
         title="Your active work"
         description="Milestones, deadlines and AI-suggested next steps — all in one place."
         actions={
-          <button className="inline-flex items-center gap-2 rounded-xl gradient-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold shadow-glow hover:opacity-95 transition">
+          <Button
+            type="button"
+            onClick={openNewDialog}
+            className="rounded-xl gradient-primary text-primary-foreground shadow-glow hover:opacity-95"
+          >
             <Plus className="h-4 w-4" />
             New project
-          </button>
+          </Button>
         }
       />
 
@@ -158,8 +153,7 @@ function ProjectsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {projects.map((p) => {
-          const completed = p.milestones.filter((m) => m.done).length;
-          const progress = Math.round((completed / p.milestones.length) * 100);
+          const progress = projectProgressPercent(p);
           return (
             <article
               key={p.id}
@@ -242,6 +236,66 @@ function ProjectsPage() {
       </div>
 
       {/* Confirmation dialog */}
+      <Dialog open={newOpen} onOpenChange={setNewOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>New project</DialogTitle>
+            <DialogDescription>
+              Add a project to your list. You can edit milestones on the card after saving.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-2">
+              <Label htmlFor="proj-name">Name</Label>
+              <Input
+                id="proj-name"
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
+                placeholder="e.g. CS 101 final project"
+                autoComplete="off"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="proj-tag">Tag</Label>
+              <Input
+                id="proj-tag"
+                value={formTag}
+                onChange={(e) => setFormTag(e.target.value)}
+                placeholder="e.g. CS / AI"
+                autoComplete="off"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="proj-due">Due date</Label>
+              <Input
+                id="proj-due"
+                type="date"
+                value={formDue}
+                onChange={(e) => setFormDue(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="proj-next">Next step (optional)</Label>
+              <Input
+                id="proj-next"
+                value={formNext}
+                onChange={(e) => setFormNext(e.target.value)}
+                placeholder="What should you do first?"
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setNewOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={submitNewProject} disabled={!formName.trim()}>
+              Create project
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog open={pending !== null} onOpenChange={(o) => !o && setPending(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

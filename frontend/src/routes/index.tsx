@@ -2,6 +2,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppLayout } from "@/components/AppLayout";
 import { AvatarTip } from "@/components/AvatarTip";
 import { Link } from "@tanstack/react-router";
+import { useProjects } from "@/context/ProjectsContext";
+import {
+  deadlineUrgency,
+  daysUntilDue,
+  dueRelativePhrase,
+  projectProgressPercent,
+} from "@/data/projects";
 import {
   Flame,
   Clock,
@@ -332,11 +339,16 @@ function StudyPlanCard() {
 }
 
 function DeadlinesCard() {
-  const items = [
-    { title: "ML Project · Phase 2", in: "2 days", urgency: "high" },
-    { title: "Calculus problem set", in: "5 days", urgency: "med" },
-    { title: "Ethics essay draft", in: "9 days", urgency: "low" },
-  ];
+  const { projects } = useProjects();
+  const items = [...projects]
+    .sort((a, b) => a.dueISO.localeCompare(b.dueISO))
+    .slice(0, 3)
+    .map((p) => ({
+      title: p.name,
+      sub: dueRelativePhrase(p.dueISO),
+      urgency: deadlineUrgency(daysUntilDue(p.dueISO)),
+      key: p.id,
+    }));
   const urgencyColor: Record<string, string> = {
     high: "bg-destructive/10 text-destructive",
     med: "bg-warning/15 text-warning-foreground",
@@ -356,7 +368,7 @@ function DeadlinesCard() {
       <ul className="space-y-3">
         {items.map((d) => (
           <li
-            key={d.title}
+            key={d.key}
             className="flex items-center gap-3 rounded-2xl p-3 hover:bg-muted/60 transition"
           >
             <AlertTriangle
@@ -370,7 +382,7 @@ function DeadlinesCard() {
             />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium truncate">{d.title}</div>
-              <div className="text-xs text-muted-foreground">in {d.in}</div>
+              <div className="text-xs text-muted-foreground">{d.sub}</div>
             </div>
             <span className={`text-[10px] uppercase tracking-wider rounded-full px-2 py-1 font-bold ${urgencyColor[d.urgency]}`}>
               {d.urgency}
@@ -424,22 +436,8 @@ function WeakTopicsCard() {
 }
 
 function ActiveProjectsCard({ className = "" }: { className?: string }) {
-  const projects = [
-    {
-      name: "ML Capstone · Image Classifier",
-      progress: 65,
-      next: "Train baseline CNN",
-      due: "in 2 days",
-      tag: "AI",
-    },
-    {
-      name: "History essay · Industrial revolution",
-      progress: 30,
-      next: "Outline arguments",
-      due: "in 1 week",
-      tag: "Humanities",
-    },
-  ];
+  const { projects } = useProjects();
+  const top = [...projects].sort((a, b) => a.dueISO.localeCompare(b.dueISO)).slice(0, 2);
   return (
     <Card className={className}>
       <div className="flex items-center justify-between mb-4">
@@ -452,27 +450,31 @@ function ActiveProjectsCard({ className = "" }: { className?: string }) {
         </Link>
       </div>
       <div className="grid sm:grid-cols-2 gap-3">
-        {projects.map((p) => (
-          <div
-            key={p.name}
-            className="rounded-2xl border border-border p-4 hover:border-primary/40 hover:shadow-soft transition"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] uppercase tracking-wider font-bold rounded-full bg-secondary text-secondary-foreground px-2 py-0.5">
-                {p.tag}
-              </span>
-              <Flame className="h-3.5 w-3.5 text-accent-foreground" />
-            </div>
-            <div className="font-semibold text-sm leading-snug">{p.name}</div>
-            <div className="mt-3 h-2 rounded-full bg-muted overflow-hidden">
-              <div className="h-full gradient-primary rounded-full" style={{ width: `${p.progress}%` }} />
-            </div>
-            <div className="mt-3 flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Next: {p.next}</span>
-              <span className="font-semibold text-foreground">{p.due}</span>
-            </div>
-          </div>
-        ))}
+        {top.map((p) => {
+          const progress = projectProgressPercent(p);
+          return (
+            <Link
+              key={p.id}
+              to="/projects"
+              className="rounded-2xl border border-border p-4 hover:border-primary/40 hover:shadow-soft transition block text-left"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] uppercase tracking-wider font-bold rounded-full bg-secondary text-secondary-foreground px-2 py-0.5 line-clamp-1">
+                  {p.tag}
+                </span>
+                <Flame className="h-3.5 w-3.5 text-accent-foreground shrink-0" />
+              </div>
+              <div className="font-semibold text-sm leading-snug">{p.name}</div>
+              <div className="mt-3 h-2 rounded-full bg-muted overflow-hidden">
+                <div className="h-full gradient-primary rounded-full" style={{ width: `${progress}%` }} />
+              </div>
+              <div className="mt-3 flex items-center justify-between text-xs gap-2">
+                <span className="text-muted-foreground line-clamp-1">Next: {p.nextStep}</span>
+                <span className="font-semibold text-foreground shrink-0">{dueRelativePhrase(p.dueISO)}</span>
+              </div>
+            </Link>
+          );
+        })}
       </div>
     </Card>
   );

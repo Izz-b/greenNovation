@@ -1,6 +1,7 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 
 import appCss from "../styles.css?url";
+import { ProjectsProvider } from "@/context/ProjectsContext";
 
 function NotFoundComponent() {
   return (
@@ -74,5 +75,9 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  return <Outlet />;
+  return (
+    <ProjectsProvider>
+      <Outlet />
+    </ProjectsProvider>
+  );
 }

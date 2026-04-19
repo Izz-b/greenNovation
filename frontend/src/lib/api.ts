@@ -1,3 +1,5 @@
+import type { Project } from "@/data/projects";
+
 /**
  * Backend base URL. Empty string = same origin (use Vite dev proxy to your API).
  * Optional: VITE_API_BASE_URL if you call the API directly.
@@ -62,6 +64,28 @@ export async function fetchCorpusFiles(): Promise<{
 /** URL to stream a corpus file (same-origin in dev via Vite proxy). */
 export function corpusFileUrl(filename: string): string {
   return `${base}/api/corpus/file/${encodeURIComponent(filename)}`;
+}
+
+export async function fetchProjects(): Promise<Project[]> {
+  const r = await fetch(`${base}/api/projects`);
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(t || `${r.status} ${r.statusText}`);
+  }
+  const data = (await r.json()) as { projects: Project[] };
+  return data.projects ?? [];
+}
+
+export async function saveProjects(projects: Project[]): Promise<void> {
+  const r = await fetch(`${base}/api/projects`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projects }),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(t || `${r.status} ${r.statusText}`);
+  }
 }
 
 export async function getHealth(): Promise<{
