@@ -197,6 +197,12 @@ class EnergyDecision(TypedDict, total=False):
 
     # reasoning
     reason: str
+    cache_key: str
+    reuse_cached_answer: bool
+    reuse_cached_rag: bool
+    reuse_readiness_signal: bool
+    readiness_inputs_unchanged: bool
+    profile_ttl_ok: bool
 
 
 # Learning / Planning
@@ -275,6 +281,9 @@ class AgentContext(TypedDict, total=False):
     profile_vector: ProfileVector
     readiness_signal: ReadinessSignal
     energy_decision: EnergyDecision
+    cached_answer: Any
+    cached_rag_chunks: List[RetrievedChunk]
+    energy_cache: Dict[str, Any]
 
     # ---- merged output ----
     merged_signal_bundle: MergedSignalBundle
