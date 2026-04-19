@@ -23,7 +23,14 @@ import { PdfViewer } from "@/components/PdfViewer";
 import { PptxViewer } from "@/components/PptxViewer";
 import { StudyNotifications } from "@/components/StudyNotifications";
 import { ChatBubble, TypingDots } from "@/components/FloatingBamboo";
-import { corpusFileUrl, deleteSession, fetchCorpusFiles, postChat } from "@/lib/api";
+import {
+  corpusFileUrl,
+  deleteSession,
+  fetchCorpusFiles,
+  postChat,
+  type EnergySnapshot,
+  type PromptHint,
+} from "@/lib/api";
 import { getStoredChatSessionId, setStoredChatSessionId } from "@/lib/chatSession";
 import { buildCorpusMaterial } from "@/lib/corpusWorkspace";
 import {
@@ -34,9 +41,13 @@ import {
 } from "@/lib/parseSessionInsights";
 import {
   extractQuizItems,
+  formatRoutingSummary,
+  parseSourcesFromReply,
   parseSummarySections,
   quizIntroText,
+  stripSourcesBlock,
   type QuizItem,
+  type RoutingSummary,
   type SummarySections,
 } from "@/lib/parseToolReplies";
 
@@ -98,10 +109,10 @@ function intentForTool(tab: ToolKind): "revise" | "practice" | "learn_concept" {
   return "learn_concept";
 }
 
-const CHAT_SUGGESTIONS = [
-  "Explain this concept simply",
-  "Give me an example",
-  "Summarize this page",
+const CHAT_SUGGESTION_CHIPS: { label: string; hint: PromptHint }[] = [
+  { label: "Explain this concept simply", hint: "explain_simple" },
+  { label: "Give me an example", hint: "give_example" },
+  { label: "Summarize this page", hint: "summarize_page" },
 ];
 
 function chapterKindLabel(kind: string): string {
@@ -139,6 +150,12 @@ function WorkspacePage() {
   const [sessionInsights, setSessionInsights] = useState<SessionInsights | null>(null);
   /** Bumps when insights update so cards replay the “popup” animation */
   const [insightsEpoch, setInsightsEpoch] = useState(0);
+  /** Energy agent snapshot from the last successful /api/chat response */
+  const [energySnapshot, setEnergySnapshot] = useState<EnergySnapshot | null>(null);
+  /** Orchestrator routing from the last reply (intent, agents, reason) */
+  const [routingSnapshot, setRoutingSnapshot] = useState<RoutingSummary | null>(null);
+  /** RAG citations parsed from the assistant reply (shown in sidebar, stripped from bubble) */
+  const [sourcesList, setSourcesList] = useState<string[]>([]);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -193,10 +210,15 @@ function WorkspacePage() {
   const runChatTurn = async (
     userDisplay: string,
     apiMessage: string,
-    opts?: { intent?: "revise" | "practice" | "learn_concept" | null; tool?: ToolKind | null },
+    opts?: {
+      intent?: "revise" | "practice" | "learn_concept" | null;
+      tool?: ToolKind | null;
+      promptHint?: PromptHint | null;
+    },
   ) => {
     const intent = opts?.intent ?? null;
     const tool = opts?.tool ?? null;
+    const promptHint = opts?.promptHint ?? null;
     if (!apiMessage.trim()) return;
     setView("chat");
     setMessages((m) => [...m, { id: crypto.randomUUID(), role: "user", text: userDisplay }]);
@@ -207,6 +229,7 @@ function WorkspacePage() {
         message: apiMessage,
         session_id: sessionId,
         intent,
+        prompt_hint: promptHint,
         course_context: coursePayload,
       });
       setSessionId(res.session_id);
@@ -223,21 +246,26 @@ function WorkspacePage() {
         setSessionInsights(merged);
         setInsightsEpoch((e) => e + 1);
       }
+      setEnergySnapshot(res.energy ?? null);
+      setRoutingSnapshot(formatRoutingSummary(res.routing ?? null));
+      const sourcesFromReply = parseSourcesFromReply(cleaned);
+      setSourcesList(sourcesFromReply);
+      const withoutSources = stripSourcesBlock(cleaned);
 
-      let bambooText = cleaned;
+      let bambooText = withoutSources;
       let quizItems: QuizItem[] | undefined;
       let summarySections: SummarySections | null | undefined;
       let variant: ChatMessage["variant"] = "default";
 
       if (tool === "quiz") {
-        const items = extractQuizItems(cleaned, res.reply_raw);
+        const items = extractQuizItems(withoutSources, res.reply_raw);
         if (items?.length) {
           quizItems = items;
-          bambooText = quizIntroText(cleaned);
+          bambooText = quizIntroText(withoutSources);
         }
       } else if (tool === "summary") {
         variant = "summary";
-        const sections = parseSummarySections(cleaned);
+        const sections = parseSummarySections(withoutSources);
         if (sections) {
           summarySections = sections;
           bambooText = "";
@@ -259,6 +287,9 @@ function WorkspacePage() {
         },
       ]);
     } catch (e) {
+      setEnergySnapshot(null);
+      setRoutingSnapshot(null);
+      setSourcesList([]);
       const msg = e instanceof Error ? e.message : String(e);
       setMessages((m) => [
         ...m,
@@ -275,11 +306,11 @@ function WorkspacePage() {
     }
   };
 
-  const sendChat = async (textArg?: string) => {
+  const sendChat = async (textArg?: string, promptHint?: PromptHint | null) => {
     const text = (textArg ?? chatInput).trim();
     if (!text) return;
     setChatInput("");
-    await runChatTurn(text, text, { intent: null, tool: null });
+    await runChatTurn(text, text, { intent: null, tool: null, promptHint: promptHint ?? null });
   };
 
   const submitTool = async (kind: ToolKind) => {
@@ -299,8 +330,8 @@ function WorkspacePage() {
   };
 
   return (
-    <div className="max-w-[1400px] mx-auto">
-      <div className="flex items-center justify-between mb-3 gap-4">
+    <div className="max-w-[1400px] mx-auto flex flex-col min-h-0 lg:h-[calc(100dvh-11rem)] lg:overflow-hidden">
+      <div className="flex items-center justify-between mb-3 gap-4 shrink-0">
         <div className="min-w-0">
           <div className="text-[10px] uppercase tracking-[0.2em] text-primary font-semibold">
             Workspace
@@ -342,9 +373,9 @@ function WorkspacePage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-12 gap-5">
+      <div className="grid grid-cols-12 gap-5 lg:flex-1 lg:min-h-0 lg:grid-rows-[minmax(0,1fr)]">
         {/* Materials with expandable chapters */}
-        <aside className="col-span-12 lg:col-span-3 rounded-3xl bg-card border border-border p-4 shadow-card h-fit">
+        <aside className="col-span-12 lg:col-span-3 rounded-3xl bg-card border border-border p-4 shadow-card lg:min-h-0 lg:max-h-full lg:overflow-y-auto">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold text-sm">Materials</h3>
             <button
@@ -442,7 +473,7 @@ function WorkspacePage() {
         </aside>
 
         {/* Reader / Chat panel + aligned sticky chat bar */}
-        <div className="col-span-12 lg:col-span-6 flex flex-col gap-2 h-[calc(100vh-9rem)]">
+        <div className="col-span-12 lg:col-span-6 flex flex-col gap-2 min-h-[min(70vh,28rem)] lg:h-full lg:min-h-0">
           <section className="rounded-3xl bg-card border border-border shadow-card overflow-hidden flex flex-col flex-1 min-h-0">
             {view === "reader" && !currentChapter && (
               <div className="p-6 lg:p-8 flex-1 overflow-y-auto grid place-items-center min-h-[280px]">
@@ -529,6 +560,9 @@ function WorkspacePage() {
                         setMessages([]);
                         setSessionInsights(null);
                         setInsightsEpoch(0);
+                        setEnergySnapshot(null);
+                        setRoutingSnapshot(null);
+                        setSourcesList([]);
                       }}
                       className="text-xs font-semibold text-muted-foreground hover:text-foreground"
                     >
@@ -567,13 +601,14 @@ function WorkspacePage() {
             <div className="rounded-2xl bg-card/95 backdrop-blur-xl border border-border shadow-glow p-2">
               {view === "chat" && (
                 <div className="flex gap-2 mb-2 overflow-x-auto px-1">
-                  {CHAT_SUGGESTIONS.map((s) => (
+                  {CHAT_SUGGESTION_CHIPS.map((s) => (
                     <button
-                      key={s}
-                      onClick={() => sendChat(s)}
+                      key={s.hint}
+                      type="button"
+                      onClick={() => void sendChat(s.label, s.hint)}
                       className="shrink-0 text-[11px] font-medium rounded-full border border-border bg-muted/40 px-2.5 py-1 hover:border-primary/50 hover:bg-primary/5 transition"
                     >
-                      {s}
+                      {s.label}
                     </button>
                   ))}
                 </div>
@@ -606,8 +641,8 @@ function WorkspacePage() {
         </div>
 
         {/* AI tools + notifications */}
-        <aside className="col-span-12 lg:col-span-3 space-y-4">
-          <div className="rounded-3xl bg-card border border-border shadow-card overflow-hidden">
+        <aside className="col-span-12 lg:col-span-3 flex flex-col gap-4 min-h-0 lg:min-h-0 lg:max-h-full">
+          <div className="rounded-3xl bg-card border border-border shadow-card overflow-hidden shrink-0">
             <div className="flex p-1 bg-muted/60">
               {(
                 [
@@ -688,7 +723,15 @@ function WorkspacePage() {
             </div>
           </div>
 
-          <StudyNotifications sessionInsights={sessionInsights} insightsEpoch={insightsEpoch} />
+          <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
+            <StudyNotifications
+              sessionInsights={sessionInsights}
+              insightsEpoch={insightsEpoch}
+              energySnapshot={energySnapshot}
+              routingSummary={routingSnapshot}
+              sources={sourcesList}
+            />
+          </div>
         </aside>
       </div>
     </div>

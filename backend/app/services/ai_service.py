@@ -4,8 +4,24 @@ import uuid
 
 from ai.graph.learning_workflow import run_learning_pipeline
 
-from backend.app.schemas.chat import ChatRequest, ChatResponse, SessionInsightsPayload
+from backend.app.schemas.chat import ChatRequest, ChatResponse, EnergySnapshot, SessionInsightsPayload
 from backend.app.services import session_service as sessions
+
+
+def _energy_to_snapshot(state: dict) -> EnergySnapshot | None:
+    """Expose energy agent decision for the workspace sidebar."""
+    ed = state.get("energy_decision") or {}
+    if not isinstance(ed, dict) or not ed:
+        return None
+    return EnergySnapshot(
+        mode=str(ed.get("mode", "unknown")),
+        responseDepth=str(ed.get("response_depth", "medium")),
+        maxTokens=int(ed.get("max_tokens", 400)),
+        reason=str(ed.get("reason", ""))[:600],
+        reuseCachedAnswer=bool(ed.get("reuse_cached_answer")),
+        reuseCachedRag=bool(ed.get("reuse_cached_rag")),
+        reuseReadinessSignal=bool(ed.get("reuse_readiness_signal")),
+    )
 
 
 def _readiness_to_session_insights(state: dict) -> SessionInsightsPayload | None:
@@ -52,6 +68,10 @@ async def chat_turn(req: ChatRequest) -> ChatResponse:
         base["routing"] = {"intent": req.intent}
     else:
         base["routing"] = {"intent": "unknown"}
+    if req.prompt_hint:
+        base["prompt_hint"] = req.prompt_hint
+    else:
+        base.pop("prompt_hint", None)
     base["session_action"] = "continue"
     if req.passive_behavior_signals:
         base["passive_behavior_signals"] = req.passive_behavior_signals
@@ -68,6 +88,7 @@ async def chat_turn(req: ChatRequest) -> ChatResponse:
             routing=None,
             errors=[str(e)],
             warnings=[],
+            energy=None,
         )
 
     final = state.get("final_response")
@@ -82,4 +103,5 @@ async def chat_turn(req: ChatRequest) -> ChatResponse:
         errors=list(state.get("errors") or []),
         warnings=list(state.get("warnings") or []),
         session_insights=_readiness_to_session_insights(state),
+        energy=_energy_to_snapshot(state),
     )

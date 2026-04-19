@@ -30,7 +30,19 @@ def _classify_intent(query: str, fallback_intent: str = "unknown") -> tuple[str,
         return "plan_study", "Planning-oriented wording detected."
     if any(k in q for k in ["stress", "stressed", "overwhelmed", "anxious", "burnout"]):
         return "wellbeing_check", "Wellbeing wording detected."
-    if any(k in q for k in ["explain", "what is", "teach me", "help me understand"]):
+    if any(
+        k in q
+        for k in [
+            "explain",
+            "what is",
+            "what's",
+            "whats ",
+            "teach me",
+            "help me understand",
+            "define ",
+            "describe ",
+        ]
+    ):
         return "learn_concept", "Concept-learning wording detected."
 
     return "unknown", "No strong intent detected."

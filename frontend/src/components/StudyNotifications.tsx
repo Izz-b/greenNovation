@@ -8,9 +8,14 @@ import {
   Target,
   Clock,
   SlidersHorizontal,
+  Zap,
+  GitBranch,
+  Library,
 } from "lucide-react";
+import type { EnergySnapshot } from "@/lib/api";
 import type { SessionInsights } from "@/lib/parseSessionInsights";
 import { hasSessionInsights } from "@/lib/parseSessionInsights";
+import type { RoutingSummary } from "@/lib/parseToolReplies";
 
 type Notif = {
   uid: string;
@@ -103,9 +108,21 @@ type StudyNotificationsProps = {
   sessionInsights?: SessionInsights | null;
   /** Increment when insights refresh to replay enter + glow (sync with parent state). */
   insightsEpoch?: number;
+  /** Energy agent decision for the last reply (mode, depth, token budget, reuse flags). */
+  energySnapshot?: EnergySnapshot | null;
+  /** Orchestrator intent / agents for the last reply. */
+  routingSummary?: RoutingSummary | null;
+  /** Parsed RAG citations from the assistant message (duplicated in sidebar). */
+  sources?: string[];
 };
 
-export function StudyNotifications({ sessionInsights = null, insightsEpoch = 0 }: StudyNotificationsProps) {
+export function StudyNotifications({
+  sessionInsights = null,
+  insightsEpoch = 0,
+  energySnapshot = null,
+  routingSummary = null,
+  sources = [],
+}: StudyNotificationsProps) {
   // visible[0] = top, visible[1] = bottom
   const [visible, setVisible] = useState<Notif[]>(() => [make(0), make(1)]);
   const [leavingId, setLeavingId] = useState<string | null>(null);
@@ -194,15 +211,99 @@ export function StudyNotifications({ sessionInsights = null, insightsEpoch = 0 }
   }
   const insightCount = insightRows.length;
 
+  const reuseTags: string[] = [];
+  if (energySnapshot?.reuseCachedAnswer) reuseTags.push("Cached answer");
+  if (energySnapshot?.reuseCachedRag) reuseTags.push("Cached retrieval");
+  if (energySnapshot?.reuseReadinessSignal) reuseTags.push("Readiness skipped");
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 px-1">
-        <Sparkles className="h-3.5 w-3.5 text-primary" />
-        <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
-          Live insights
-        </span>
+    <div className="flex flex-col h-full min-h-0 gap-0">
+      <div className="shrink-0 space-y-3">
+      {energySnapshot && (
+        <div className="relative rounded-2xl bg-card border border-border shadow-card p-4 flex items-start gap-3">
+          <div
+            className={`h-10 w-10 rounded-full border grid place-items-center shrink-0 ${TONE.sky}`}
+          >
+            <Zap className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-bold text-primary">Energy mode</div>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              <span className="font-semibold text-foreground capitalize">{energySnapshot.mode}</span>
+              {" · "}
+              {energySnapshot.responseDepth} depth
+              {" · ~"}
+              {energySnapshot.maxTokens} tokens
+            </p>
+            {energySnapshot.reason ? (
+              <p className="text-[10px] text-muted-foreground/90 mt-2 leading-snug line-clamp-5">
+                {energySnapshot.reason}
+              </p>
+            ) : null}
+            {reuseTags.length > 0 ? (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {reuseTags.map((t) => (
+                  <span
+                    key={t}
+                    className="text-[9px] font-semibold uppercase tracking-wide rounded-full bg-muted px-2 py-0.5 text-muted-foreground"
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+      {routingSummary && (
+        <div className="relative rounded-2xl bg-card border border-border shadow-card p-4 flex items-start gap-3">
+          <div
+            className={`h-10 w-10 rounded-full border grid place-items-center shrink-0 ${TONE.warm}`}
+          >
+            <GitBranch className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-bold text-primary">Routing</div>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              <span className="font-semibold text-foreground capitalize">{routingSummary.intent}</span>
+            </p>
+            <p className="text-[10px] text-muted-foreground/90 mt-1.5 leading-snug line-clamp-4">
+              {routingSummary.reason}
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-1.5">
+              <span className="font-semibold text-foreground/80">Agents:</span> {routingSummary.agents}
+            </p>
+          </div>
+        </div>
+      )}
+      {sources.length > 0 && (
+        <div className="relative rounded-2xl bg-card border border-border shadow-card p-4 flex items-start gap-3">
+          <div
+            className={`h-10 w-10 rounded-full border grid place-items-center shrink-0 ${TONE.primary}`}
+          >
+            <Library className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-bold text-primary">Sources</div>
+            <ul className="mt-2 space-y-1.5 text-[10px] text-muted-foreground leading-snug">
+              {sources.map((s, i) => (
+                <li key={`${i}-${s.slice(0, 24)}`} className="border-l-2 border-primary/25 pl-2">
+                  {s}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
       </div>
-      <div className="relative space-y-3">
+      <div className="flex flex-col flex-1 min-h-0 min-w-0 mt-3">
+        <div className="flex items-center gap-2 px-1 shrink-0 pb-2">
+          <Sparkles className="h-3.5 w-3.5 text-primary" />
+          <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
+            Live insights
+          </span>
+        </div>
+      <div className="relative space-y-3 flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-0.5 [scrollbar-width:thin]">
         {insightRows.map((row, idx) => {
           const Icon = row.icon;
           return (
@@ -276,6 +377,7 @@ export function StudyNotifications({ sessionInsights = null, insightsEpoch = 0 }
             </div>
           );
         })}
+      </div>
       </div>
       <style>{`
         @keyframes notif-enter {

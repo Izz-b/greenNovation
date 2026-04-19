@@ -12,6 +12,19 @@ export type SessionInsightsPayload = {
   difficultyAdjustment?: string | null;
 };
 
+export type PromptHint = "explain_simple" | "give_example" | "summarize_page";
+
+/** Energy agent output (subset), surfaced per chat reply. */
+export type EnergySnapshot = {
+  mode: string;
+  responseDepth: string;
+  maxTokens: number;
+  reason: string;
+  reuseCachedAnswer?: boolean;
+  reuseCachedRag?: boolean;
+  reuseReadinessSignal?: boolean;
+};
+
 export type ChatResponse = {
   session_id: string;
   reply: string;
@@ -20,6 +33,7 @@ export type ChatResponse = {
   errors: string[];
   warnings: string[];
   session_insights?: SessionInsightsPayload | null;
+  energy?: EnergySnapshot | null;
 };
 
 export async function postChat(body: {
@@ -27,6 +41,8 @@ export async function postChat(body: {
   session_id?: string | null;
   /** Passed through to the orchestrator (e.g. revise, practice, learn_concept). */
   intent?: string | null;
+  /** Workspace suggestion chips — steers learning prompt shape. */
+  prompt_hint?: PromptHint | null;
   course_context?: Record<string, unknown> | null;
 }): Promise<ChatResponse> {
   const r = await fetch(`${base}/api/chat`, {
@@ -36,6 +52,7 @@ export async function postChat(body: {
       message: body.message,
       session_id: body.session_id ?? null,
       intent: body.intent ?? null,
+      prompt_hint: body.prompt_hint ?? null,
       course_context: body.course_context ?? null,
     }),
   });

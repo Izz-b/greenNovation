@@ -11,6 +11,7 @@ _EPHEMERAL = frozenset(
         "merged_signal_bundle",
         "response_draft",
         "query",
+        "prompt_hint",
         "final_response",
     }
 )
