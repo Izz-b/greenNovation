@@ -1,8 +1,11 @@
 """Pydantic models for well-being/readiness check-ins."""
 
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Optional
+
+from pydantic import BaseModel, Field
 
 
 class CheckinRequest(BaseModel):
@@ -64,7 +67,6 @@ class ReadinessHistoryResponse(BaseModel):
     """Response for historical check-ins."""
     data: list[CheckinResponse]
     week_summary: WeeklySummary
-
 
 
 class ReadinessApiResponse(BaseModel):
