@@ -64,3 +64,13 @@ class ReadinessHistoryResponse(BaseModel):
     """Response for historical check-ins."""
     data: list[CheckinResponse]
     week_summary: WeeklySummary
+
+
+
+class ReadinessApiResponse(BaseModel):
+    """Latest readiness from the same `run_readiness_agent` path as chat."""
+
+    readiness_percent: int = Field(ge=0, le=100)
+    readiness_signal: dict
+    recommended_intensity: str = ""
+    session_id: str | None = None

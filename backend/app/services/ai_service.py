@@ -4,8 +4,26 @@ import uuid
 
 from ai.graph.learning_workflow import run_learning_pipeline
 
-from backend.app.schemas.chat import ChatRequest, ChatResponse
+from backend.app.schemas.chat import ChatRequest, ChatResponse, SessionInsightsPayload
 from backend.app.services import session_service as sessions
+
+
+def _readiness_to_session_insights(state: dict) -> SessionInsightsPayload | None:
+    """Expose readiness adaptation fields for the frontend Live insights column."""
+    rs = state.get("readiness_signal") or {}
+    sm = rs.get("suggested_session_minutes")
+    br = rs.get("break_recommendation")
+    da = rs.get("difficulty_adjustment")
+    kwargs: dict[str, str] = {}
+    if isinstance(sm, int):
+        kwargs["sessionMinutes"] = f"{sm} minutes"
+    if isinstance(br, bool):
+        kwargs["breakNeeded"] = "Yes" if br else "No"
+    if isinstance(da, str) and da.strip():
+        kwargs["difficultyAdjustment"] = da.strip().capitalize()
+    if not kwargs:
+        return None
+    return SessionInsightsPayload(**kwargs)
 
 
 def reply_to_text(final_response: object) -> tuple[str, str | list | None]:
@@ -63,4 +81,5 @@ async def chat_turn(req: ChatRequest) -> ChatResponse:
         routing=state.get("routing"),
         errors=list(state.get("errors") or []),
         warnings=list(state.get("warnings") or []),
+        session_insights=_readiness_to_session_insights(state),
     )

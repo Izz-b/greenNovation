@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """API routes for well-being/readiness check-ins."""
 
 from typing import Optional
@@ -63,3 +64,24 @@ async def get_history(days: int = Query(7, ge=1, le=90)) -> ReadinessHistoryResp
     user_id = "default_user"
     
     return await readiness_service.get_history(user_id, days)
+=======
+from __future__ import annotations
+
+from fastapi import APIRouter, Query
+
+from backend.app.schemas.readiness import ReadinessApiResponse
+from backend.app.services.readiness_dashboard_service import compute_dashboard_readiness
+
+router = APIRouter(tags=["readiness"])
+
+
+@router.get("/api/readiness", response_model=ReadinessApiResponse)
+def get_readiness(
+    session_id: str | None = Query(
+        default=None,
+        description="Optional chat session id: merges stored passive_behavior_signals from that session.",
+    ),
+):
+    data = compute_dashboard_readiness(session_id)
+    return ReadinessApiResponse(**data)
+>>>>>>> 9b81d9b887003d06bd9403c23b9bc5a88caf7139

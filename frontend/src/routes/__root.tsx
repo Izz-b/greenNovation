@@ -2,6 +2,7 @@ import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/r
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import appCss from "../styles.css?url";
+import { ProjectsProvider } from "@/context/ProjectsContext";
 
 // Create a client for React Query
 const queryClient = new QueryClient({
@@ -85,5 +86,9 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  return <Outlet />;
+  return (
+    <ProjectsProvider>
+      <Outlet />
+    </ProjectsProvider>
+  );
 }

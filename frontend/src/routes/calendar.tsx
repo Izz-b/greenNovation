@@ -47,6 +47,8 @@ type CalEvent = {
   time?: string;
   kind: EventKind;
   duration?: string;
+  /** Opens the course workspace when the event is clicked */
+  opensWorkspace?: boolean;
 };
 
 const KIND_META: Record<
@@ -86,7 +88,15 @@ const KIND_META: Record<
 // Seed events relative to today so the calendar always feels alive.
 const SEED_EVENTS: CalEvent[] = [
   { id: "e1", dayOffset: 0, title: "Linear Algebra · review", time: "09:00", duration: "25 min", kind: "study" },
-  { id: "e2", dayOffset: 0, title: "Eigenvectors quiz", time: "10:30", duration: "10 min", kind: "study" },
+  {
+    id: "e2",
+    dayOffset: 0,
+    title: "Python · cours-python study session",
+    time: "10:30",
+    duration: "25 min",
+    kind: "study",
+    opensWorkspace: true,
+  },
   { id: "e3", dayOffset: 0, title: "ML notes summary", time: "14:00", duration: "20 min", kind: "homework" },
   { id: "e4", dayOffset: 0, title: "Group project sync", time: "16:30", duration: "30 min", kind: "project" },
   { id: "e5", dayOffset: 1, title: "Calculus problem set", time: "11:00", duration: "45 min", kind: "homework" },
@@ -315,14 +325,25 @@ function CalendarPage() {
                     )}
                   </div>
                   <div className="mt-1 hidden sm:flex flex-col gap-1 overflow-hidden">
-                    {visible.map((e) => (
-                      <div
-                        key={e.id}
-                        className={`truncate text-[10px] font-semibold rounded-md px-1.5 py-0.5 ${KIND_META[e.kind].chip}`}
-                      >
-                        {e.title}
-                      </div>
-                    ))}
+                    {visible.map((e) =>
+                      e.opensWorkspace ? (
+                        <Link
+                          key={e.id}
+                          to="/workspace"
+                          onClick={(ev) => ev.stopPropagation()}
+                          className={`truncate text-[10px] font-semibold rounded-md px-1.5 py-0.5 ${KIND_META[e.kind].chip} hover:opacity-90`}
+                        >
+                          {e.title}
+                        </Link>
+                      ) : (
+                        <div
+                          key={e.id}
+                          className={`truncate text-[10px] font-semibold rounded-md px-1.5 py-0.5 ${KIND_META[e.kind].chip}`}
+                        >
+                          {e.title}
+                        </div>
+                      ),
+                    )}
                     {overflow > 0 && (
                       <div className="text-[10px] text-muted-foreground font-semibold pl-1">
                         +{overflow} more
@@ -380,11 +401,8 @@ function CalendarPage() {
                 .map((e) => {
                   const meta = KIND_META[e.kind];
                   const Icon = meta.icon;
-                  return (
-                    <div
-                      key={e.id}
-                      className={`group rounded-2xl border border-border p-3 hover:shadow-soft transition ring-0 hover:ring-2 ${meta.ring}`}
-                    >
+                  const body = (
+                    <>
                       <div className="flex items-start gap-3">
                         <div
                           className={`h-9 w-9 rounded-xl grid place-items-center shrink-0 ${meta.chip}`}
@@ -392,7 +410,7 @@ function CalendarPage() {
                           <Icon className="h-4 w-4" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span
                               className={`text-[10px] uppercase tracking-wider font-bold rounded-full px-2 py-0.5 ${meta.chip}`}
                             >
@@ -413,8 +431,30 @@ function CalendarPage() {
                               {e.duration}
                             </div>
                           )}
+                          {e.opensWorkspace && (
+                            <div className="mt-2 text-xs font-semibold text-primary inline-flex items-center gap-1">
+                              Open workspace to study
+                              <ArrowRight className="h-3 w-3" />
+                            </div>
+                          )}
                         </div>
                       </div>
+                    </>
+                  );
+                  return e.opensWorkspace ? (
+                    <Link
+                      key={e.id}
+                      to="/workspace"
+                      className={`group block rounded-2xl border border-border p-3 hover:shadow-soft transition ring-0 hover:ring-2 ${meta.ring}`}
+                    >
+                      {body}
+                    </Link>
+                  ) : (
+                    <div
+                      key={e.id}
+                      className={`group rounded-2xl border border-border p-3 hover:shadow-soft transition ring-0 hover:ring-2 ${meta.ring}`}
+                    >
+                      {body}
                     </div>
                   );
                 })

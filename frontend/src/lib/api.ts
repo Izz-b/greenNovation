@@ -1,8 +1,16 @@
+import type { Project } from "@/data/projects";
+
 /**
  * Backend base URL. Empty string = same origin (use Vite dev proxy to your API).
  * Optional: VITE_API_BASE_URL if you call the API directly.
  */
 const base = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+
+export type SessionInsightsPayload = {
+  sessionMinutes?: string | null;
+  breakNeeded?: string | null;
+  difficultyAdjustment?: string | null;
+};
 
 export type ChatResponse = {
   session_id: string;
@@ -11,11 +19,13 @@ export type ChatResponse = {
   routing?: Record<string, unknown> | null;
   errors: string[];
   warnings: string[];
+  session_insights?: SessionInsightsPayload | null;
 };
 
 export async function postChat(body: {
   message: string;
   session_id?: string | null;
+  /** Passed through to the orchestrator (e.g. revise, practice, learn_concept). */
   intent?: string | null;
   course_context?: Record<string, unknown> | null;
 }): Promise<ChatResponse> {
@@ -62,6 +72,49 @@ export async function fetchCorpusFiles(): Promise<{
 /** URL to stream a corpus file (same-origin in dev via Vite proxy). */
 export function corpusFileUrl(filename: string): string {
   return `${base}/api/corpus/file/${encodeURIComponent(filename)}`;
+}
+
+export async function fetchProjects(): Promise<Project[]> {
+  const r = await fetch(`${base}/api/projects`);
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(t || `${r.status} ${r.statusText}`);
+  }
+  const data = (await r.json()) as { projects: Project[] };
+  return data.projects ?? [];
+}
+
+export async function saveProjects(projects: Project[]): Promise<void> {
+  const r = await fetch(`${base}/api/projects`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projects }),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(t || `${r.status} ${r.statusText}`);
+  }
+}
+
+export type ReadinessApiResponse = {
+  readiness_percent: number;
+  readiness_signal: Record<string, unknown>;
+  recommended_intensity: string;
+  session_id: string | null;
+};
+
+/** Same readiness pipeline as chat (`run_readiness_agent`). Uses projects for passive signals; optional session merges stored signals from workspace chat. */
+export async function fetchReadiness(sessionId: string | null): Promise<ReadinessApiResponse> {
+  const q =
+    sessionId && sessionId.length > 0
+      ? `?session_id=${encodeURIComponent(sessionId)}`
+      : "";
+  const r = await fetch(`${base}/api/readiness${q}`);
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(t || `${r.status} ${r.statusText}`);
+  }
+  return r.json() as Promise<ReadinessApiResponse>;
 }
 
 export async function getHealth(): Promise<{
