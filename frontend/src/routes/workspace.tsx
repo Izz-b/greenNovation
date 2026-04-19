@@ -24,6 +24,7 @@ import { PptxViewer } from "@/components/PptxViewer";
 import { StudyNotifications } from "@/components/StudyNotifications";
 import { ChatBubble, TypingDots } from "@/components/FloatingBamboo";
 import { corpusFileUrl, deleteSession, fetchCorpusFiles, postChat } from "@/lib/api";
+import { getStoredChatSessionId, setStoredChatSessionId } from "@/lib/chatSession";
 import { buildCorpusMaterial } from "@/lib/corpusWorkspace";
 
 export const Route = createFileRoute("/workspace")({
@@ -84,7 +85,7 @@ function WorkspacePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [thinking, setThinking] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(() => getStoredChatSessionId());
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -151,6 +152,7 @@ function WorkspacePage() {
           : undefined,
       });
       setSessionId(res.session_id);
+      setStoredChatSessionId(res.session_id);
       const reply =
         res.errors?.length && !res.reply?.trim()
           ? `Error: ${res.errors.join("; ")}`
@@ -404,6 +406,7 @@ function WorkspacePage() {
                     <button
                       onClick={() => {
                         if (sessionId) void deleteSession(sessionId);
+                        setStoredChatSessionId(null);
                         setSessionId(null);
                         setMessages([]);
                       }}

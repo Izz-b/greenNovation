@@ -3,6 +3,9 @@ import { AppLayout } from "@/components/AppLayout";
 import { AvatarTip } from "@/components/AvatarTip";
 import { Link } from "@tanstack/react-router";
 import { useProjects } from "@/context/ProjectsContext";
+import { useEffect, useState } from "react";
+import { fetchReadiness } from "@/lib/api";
+import { getStoredChatSessionId } from "@/lib/chatSession";
 import {
   deadlineUrgency,
   daysUntilDue,
@@ -52,6 +55,54 @@ function DashboardPage() {
 }
 
 function Dashboard() {
+  const [readiness, setReadiness] = useState<{
+    pct: number | null;
+    intensity: string;
+    signal: Record<string, unknown> | null;
+    loading: boolean;
+    error: string | null;
+  }>({
+    pct: null,
+    intensity: "",
+    signal: null,
+    loading: true,
+    error: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const sid = getStoredChatSessionId();
+        const r = await fetchReadiness(sid);
+        if (cancelled) return;
+        setReadiness({
+          pct: r.readiness_percent,
+          intensity: r.recommended_intensity,
+          signal: r.readiness_signal,
+          loading: false,
+          error: null,
+        });
+      } catch (e) {
+        if (!cancelled) {
+          setReadiness((x) => ({
+            ...x,
+            loading: false,
+            error: e instanceof Error ? e.message : String(e),
+          }));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const readinessLine =
+    readiness.loading || readiness.pct == null
+      ? "Checking readiness…"
+      : `You're ${readiness.pct}% ready for today. Here's your next best move.`;
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Greeting */}
@@ -63,9 +114,7 @@ function Dashboard() {
           <h1 className="font-display text-3xl lg:text-4xl font-bold tracking-tight">
             Good morning, <span className="text-gradient-primary">Sara</span> 🌿
           </h1>
-          <p className="text-muted-foreground mt-2">
-            You're 78% ready for today. Here's your next best move.
-          </p>
+          <p className="text-muted-foreground mt-2">{readinessLine}</p>
         </div>
         <div className="flex gap-2">
           <Link
@@ -86,7 +135,13 @@ function Dashboard() {
 
       {/* Top grid: Readiness + Next Action + Forest */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <ReadinessCard />
+        <ReadinessCard
+          loading={readiness.loading}
+          error={readiness.error}
+          pct={readiness.pct}
+          intensity={readiness.intensity}
+          signal={readiness.signal}
+        />
         <NextActionCard />
         <EcoForestCard />
       </div>
@@ -135,8 +190,53 @@ function Card({
   );
 }
 
-function ReadinessCard() {
-  const score = 78;
+function intensityPillLabel(intensity: string): string {
+  switch (intensity) {
+    case "recovery_light":
+      return "Recovery focus";
+    case "light":
+      return "Light session";
+    case "full":
+      return "Peak ready";
+    default:
+      return "Balanced";
+  }
+}
+
+function readinessAxisBars(signal: Record<string, unknown> | null): {
+  workloadEase: number;
+  stability: number;
+  recovery: number;
+} {
+  if (!signal) {
+    return { workloadEase: 0, stability: 0, recovery: 0 };
+  }
+  const w = Number(signal.workload_pressure_score ?? 0);
+  const s = Number(signal.study_stability_score ?? 0);
+  const f = Number(signal.behavioral_fatigue_score ?? 0);
+  return {
+    workloadEase: Math.round(Math.min(100, Math.max(0, (1 - w) * 100))),
+    stability: Math.round(Math.min(100, Math.max(0, s * 100))),
+    recovery: Math.round(Math.min(100, Math.max(0, (1 - f) * 100))),
+  };
+}
+
+function ReadinessCard({
+  loading,
+  error,
+  pct,
+  intensity,
+  signal,
+}: {
+  loading: boolean;
+  error: string | null;
+  pct: number | null;
+  intensity: string;
+  signal: Record<string, unknown> | null;
+}) {
+  const score = pct ?? 0;
+  const bars = readinessAxisBars(signal);
+
   return (
     <Card className="lg:col-span-4 relative overflow-hidden">
       <div className="absolute inset-0 opacity-40 pointer-events-none">
@@ -149,20 +249,28 @@ function ReadinessCard() {
             Readiness today
           </div>
           <span className="text-xs rounded-full bg-success/10 text-success px-2.5 py-1 font-semibold">
-            Above average
+            {loading ? "…" : intensityPillLabel(intensity)}
           </span>
         </div>
+
+        {error && (
+          <p className="text-xs text-destructive mb-3">
+            Readiness unavailable ({error}). Start the API to sync with the readiness agent.
+          </p>
+        )}
 
         <div className="flex items-center gap-5">
           <div
             className="relative h-32 w-32 rounded-full grid place-items-center"
             style={{
-              background: `conic-gradient(var(--primary) ${score * 3.6}deg, color-mix(in oklab, var(--muted) 90%, transparent) 0deg)`,
+              background: `conic-gradient(var(--primary) ${loading ? 0 : score * 3.6}deg, color-mix(in oklab, var(--muted) 90%, transparent) 0deg)`,
             }}
           >
             <div className="h-[104px] w-[104px] rounded-full bg-card grid place-items-center">
               <div className="text-center">
-                <div className="font-display text-3xl font-bold">{score}</div>
+                <div className="font-display text-3xl font-bold">
+                  {loading ? "…" : error ? "—" : score}
+                </div>
                 <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
                   / 100
                 </div>
@@ -170,9 +278,9 @@ function ReadinessCard() {
             </div>
           </div>
           <div className="flex-1 space-y-2.5">
-            <Stat label="Focus" value={82} color="primary" />
-            <Stat label="Sleep" value={70} color="info" />
-            <Stat label="Mood" value={84} color="warning" />
+            <Stat label="Workload ease" value={loading || error ? 0 : bars.workloadEase} color="primary" />
+            <Stat label="Study stability" value={loading || error ? 0 : bars.stability} color="info" />
+            <Stat label="Recovery" value={loading || error ? 0 : bars.recovery} color="warning" />
           </div>
         </div>
       </div>
@@ -221,10 +329,14 @@ function NextActionCard() {
           AI Recommendation
         </div>
         <h2 className="font-display text-2xl lg:text-3xl font-bold leading-tight">
-          Review <span className="underline decoration-primary-foreground/40 decoration-2 underline-offset-4">Linear Algebra · Eigenvectors</span> for 25 min
+          Review{" "}
+          <span className="underline decoration-primary-foreground/40 decoration-2 underline-offset-4">
+            Python · cours-python, chap1-Python_OOP
+          </span>{" "}
+          for 25 min
         </h2>
         <p className="opacity-85 text-sm mt-3 max-w-md">
-          You scored 62% on yesterday's quiz. A short focused review will lift your mastery to ~80%.
+          A quick pass through your Python readings before you practice keeps the next session sharp.
         </p>
         <div className="flex flex-wrap items-center gap-2 mt-5">
           <Link
@@ -279,6 +391,7 @@ function EcoForestCard() {
         </div>
         <Link
           to="/forest"
+          search={{ reward: undefined }}
           className="mt-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-primary hover:underline"
         >
           Visit your forest <ArrowRight className="h-3.5 w-3.5" />
@@ -395,10 +508,11 @@ function DeadlinesCard() {
 }
 
 function WeakTopicsCard() {
+  /** Labels mirror materials under the workspace data folder (PDFs / PPTX). */
   const topics = [
-    { name: "Eigenvectors", level: 42 },
-    { name: "Backpropagation", level: 55 },
-    { name: "Bayesian inference", level: 61 },
+    { name: "Python fondamentaux (0865)", level: 44 },
+    { name: "POO — chap1-Python_OOP", level: 52 },
+    { name: "Fichiers & exceptions (slides ch.5)", level: 58 },
   ];
   return (
     <Card>
@@ -426,10 +540,10 @@ function WeakTopicsCard() {
         ))}
       </ul>
       <Link
-        to="/learning"
+        to="/workspace"
         className="mt-5 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
       >
-        Practice now <ArrowRight className="h-3.5 w-3.5" />
+        Open workspace <ArrowRight className="h-3.5 w-3.5" />
       </Link>
     </Card>
   );

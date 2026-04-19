@@ -1,20 +1,20 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_PROJECTS, type Project } from "@/data/projects";
+import type { Project } from "@/data/projects";
 import { fetchProjects, saveProjects } from "@/lib/api";
 
 const STORAGE_KEY = "greennovation-projects-v1";
 const SAVE_DEBOUNCE_MS = 800;
 
 function loadFromStorage(): Project[] {
-  if (typeof window === "undefined") return DEFAULT_PROJECTS;
+  if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_PROJECTS;
+    if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return DEFAULT_PROJECTS;
+    if (!Array.isArray(parsed)) return [];
     return parsed as Project[];
   } catch {
-    return DEFAULT_PROJECTS;
+    return [];
   }
 }
 
@@ -28,7 +28,7 @@ type ProjectsContextValue = {
 const ProjectsContext = createContext<ProjectsContextValue | null>(null);
 
 export function ProjectsProvider({ children }: { children: ReactNode }) {
-  const [projects, setProjects] = useState<Project[]>(DEFAULT_PROJECTS);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -38,11 +38,7 @@ export function ProjectsProvider({ children }: { children: ReactNode }) {
       try {
         const remote = await fetchProjects();
         if (cancelled) return;
-        if (remote.length > 0) {
-          setProjects(remote);
-        } else {
-          setProjects(loadFromStorage());
-        }
+        setProjects(remote);
       } catch {
         if (!cancelled) setProjects(loadFromStorage());
       } finally {

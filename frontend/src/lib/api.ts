@@ -88,6 +88,27 @@ export async function saveProjects(projects: Project[]): Promise<void> {
   }
 }
 
+export type ReadinessApiResponse = {
+  readiness_percent: number;
+  readiness_signal: Record<string, unknown>;
+  recommended_intensity: string;
+  session_id: string | null;
+};
+
+/** Same readiness pipeline as chat (`run_readiness_agent`). Uses projects for passive signals; optional session merges stored signals from workspace chat. */
+export async function fetchReadiness(sessionId: string | null): Promise<ReadinessApiResponse> {
+  const q =
+    sessionId && sessionId.length > 0
+      ? `?session_id=${encodeURIComponent(sessionId)}`
+      : "";
+  const r = await fetch(`${base}/api/readiness${q}`);
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(t || `${r.status} ${r.statusText}`);
+  }
+  return r.json() as Promise<ReadinessApiResponse>;
+}
+
 export async function getHealth(): Promise<{
   status: string;
   data_dir: string;
