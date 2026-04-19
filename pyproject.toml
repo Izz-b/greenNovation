@@ -19,11 +19,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+api = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-dotenv>=1.0.0",
+]
 dev = ["pytest>=8.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ai*"]
+include = ["ai*", "api*"]
 
 [tool.pytest.ini_options]
 testpaths = ["ai/test"]

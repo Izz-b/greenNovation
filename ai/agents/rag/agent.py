@@ -1,9 +1,19 @@
 from typing import Dict, List
+from pathlib import Path
 from sentence_transformers import CrossEncoder
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 import uuid
 import os
+
+
+def _data_dir() -> str:
+    """Index folder (contains index.faiss, index.pkl). CWD-independent."""
+    env = os.environ.get("GREENNOVATION_DATA_DIR")
+    if env:
+        return env
+    # ai/agents/rag/agent.py -> greenNovation repo root
+    return str(Path(__file__).resolve().parents[2] / "data")
 
 
 # Load models
@@ -13,7 +23,7 @@ embedding_model = HuggingFaceEmbeddings(
 )
 
 vectorstore = FAISS.load_local(
-    "data",
+    _data_dir(),
     embedding_model,
     allow_dangerous_deserialization=True
 )

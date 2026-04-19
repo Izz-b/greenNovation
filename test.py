@@ -39,6 +39,10 @@ state = {
     "traces": [],
     "warnings": [],
     "metrics": {},
+    "planner_state": {
+        "last_generated_date": None,
+        "turns_since_last_plan": 0,
+    },
 }
 
 

@@ -1,77 +1,26 @@
-import { useEffect, useState } from "react";
-import { Document, Page, pdfjs } from "react-pdf";
-import "react-pdf/dist/Page/AnnotationLayer.css";
-import "react-pdf/dist/Page/TextLayer.css";
-import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { useEffect, useState, type ComponentType } from "react";
+import { Loader2 } from "lucide-react";
 
-// Use CDN worker matching installed pdfjs-dist version
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
-
+/**
+ * SSR-safe wrapper: react-pdf / pdf.js use browser APIs (and newer JS) that break in Node during SSR.
+ * The heavy viewer loads only after mount in the browser.
+ */
 export function PdfViewer({ url }: { url: string }) {
-  const [numPages, setNumPages] = useState(0);
-  const [page, setPage] = useState(1);
-  const [width, setWidth] = useState(640);
+  const [Inner, setInner] = useState<ComponentType<{ url: string }> | null>(null);
 
   useEffect(() => {
-    const onResize = () => {
-      const el = document.getElementById("pdf-container");
-      if (el) setWidth(Math.min(el.clientWidth - 16, 720));
-    };
-    onResize();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    void import("./PdfViewerInner").then((m) => setInner(() => m.PdfViewerInner));
   }, []);
 
-  return (
-    <div id="pdf-container" className="rounded-2xl bg-muted/40 border border-border p-2 lg:p-4">
-      <Document
-        file={url}
-        onLoadSuccess={({ numPages }) => setNumPages(numPages)}
-        loading={
-          <div className="grid place-items-center h-[400px] text-muted-foreground">
-            <div className="flex items-center gap-2 text-sm">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading PDF…
-            </div>
-          </div>
-        }
-        error={
-          <div className="grid place-items-center h-[400px] text-sm text-destructive">
-            Couldn't load this PDF.
-          </div>
-        }
-      >
-        <div className="flex justify-center">
-          <Page
-            pageNumber={page}
-            width={width}
-            renderAnnotationLayer={false}
-            renderTextLayer={false}
-            className="shadow-card rounded-lg overflow-hidden"
-          />
+  if (!Inner) {
+    return (
+      <div className="rounded-2xl bg-muted/40 border border-border p-8 grid place-items-center min-h-[320px] text-muted-foreground">
+        <div className="flex items-center gap-2 text-sm">
+          <Loader2 className="h-5 w-5 animate-spin" /> Preparing PDF viewer…
         </div>
-      </Document>
+      </div>
+    );
+  }
 
-      {numPages > 0 && (
-        <div className="flex items-center justify-between mt-3 px-2">
-          <button
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:bg-card disabled:opacity-40 transition"
-          >
-            <ChevronLeft className="h-4 w-4" /> Prev
-          </button>
-          <div className="text-xs text-muted-foreground font-medium">
-            Page {page} of {numPages}
-          </div>
-          <button
-            disabled={page >= numPages}
-            onClick={() => setPage((p) => Math.min(numPages, p + 1))}
-            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold hover:bg-card disabled:opacity-40 transition"
-          >
-            Next <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-    </div>
-  );
+  return <Inner url={url} />;
 }

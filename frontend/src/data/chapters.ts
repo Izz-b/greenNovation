@@ -1,4 +1,4 @@
-export type ChapterKind = "rich" | "pdf" | "mixed";
+export type ChapterKind = "rich" | "pdf" | "mixed" | "download" | "pptx";
 
 export type RichBlock =
   | { type: "h2"; text: string }
@@ -14,7 +14,11 @@ export type Chapter = {
   pages: number;
   kind: ChapterKind;
   pdfUrl?: string;
+  /** In-browser PPTX preview URL (same-origin API or public URL) */
+  pptxUrl?: string;
   blocks?: RichBlock[];
+  /** Filename in the RAG `data/` folder — used for chat `allowed_sources` + download links */
+  sourceFilename?: string;
 };
 
 export type Material = { id: string; name: string; chapters: Chapter[] };
