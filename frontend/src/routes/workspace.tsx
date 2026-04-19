@@ -169,7 +169,7 @@ function WorkspacePage() {
           id: crypto.randomUUID(),
           role: "bamboo",
           text:
-            `Could not reach the AI backend (${msg}). Start the API: \`uvicorn backend.app.main:app --reload --port 8000\` from the greenNovation folder.`,
+            `Could not reach the AI backend (${msg}). Start: \`uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8001\` (match VITE_API_PROXY_TARGET in frontend/.env.local).`,
           streaming: false,
         },
       ]);
