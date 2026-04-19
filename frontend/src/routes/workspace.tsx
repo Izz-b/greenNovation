@@ -26,6 +26,19 @@ import { ChatBubble, TypingDots } from "@/components/FloatingBamboo";
 import { corpusFileUrl, deleteSession, fetchCorpusFiles, postChat } from "@/lib/api";
 import { getStoredChatSessionId, setStoredChatSessionId } from "@/lib/chatSession";
 import { buildCorpusMaterial } from "@/lib/corpusWorkspace";
+import {
+  hasSessionInsights,
+  mergeSessionInsights,
+  stripSessionInsightLines,
+  type SessionInsights,
+} from "@/lib/parseSessionInsights";
+import {
+  extractQuizItems,
+  parseSummarySections,
+  quizIntroText,
+  type QuizItem,
+  type SummarySections,
+} from "@/lib/parseToolReplies";
 
 export const Route = createFileRoute("/workspace")({
   head: () => ({
@@ -50,7 +63,40 @@ export const Route = createFileRoute("/workspace")({
   ),
 });
 
-type ChatMessage = { id: string; role: "user" | "bamboo"; text: string; streaming?: boolean };
+type ToolKind = "summary" | "quiz" | "explain";
+
+type ChatMessage = {
+  id: string;
+  role: "user" | "bamboo";
+  text: string;
+  streaming?: boolean;
+  quizItems?: QuizItem[];
+  summarySections?: SummarySections | null;
+  variant?: "default" | "summary" | "explain";
+};
+
+function buildToolApiMessage(tab: ToolKind, userHint: string): string {
+  const q = userHint.trim();
+  if (tab === "summary") {
+    return q
+      ? `Summarize this topic using only the course materials. Topic or focus: ${q}`
+      : `Summarize the key ideas of the current lesson, then add revision questions with answers. Use only the course materials.`;
+  }
+  if (tab === "quiz") {
+    return q
+      ? `Generate exactly 3 practice questions about: ${q}. Return ONLY valid JSON as specified in your instructions. Use only the course materials.`
+      : `Generate exactly 3 practice questions from the current lesson. Return ONLY valid JSON as specified in your instructions. Use only the course materials.`;
+  }
+  return q
+    ? `Explain in clear, student-friendly language (examples welcome): ${q}`
+    : `Explain the main concepts of the current lesson in simple terms. Use only the course materials.`;
+}
+
+function intentForTool(tab: ToolKind): "revise" | "practice" | "learn_concept" {
+  if (tab === "summary") return "revise";
+  if (tab === "quiz") return "practice";
+  return "learn_concept";
+}
 
 const CHAT_SUGGESTIONS = [
   "Explain this concept simply",
@@ -68,7 +114,10 @@ function chapterKindLabel(kind: string): string {
 }
 
 function WorkspacePage() {
-  const [tab, setTab] = useState<"summary" | "quiz" | "explain">("summary");
+  const [tab, setTab] = useState<ToolKind>("summary");
+  const [draftSummary, setDraftSummary] = useState("");
+  const [draftQuiz, setDraftQuiz] = useState("");
+  const [draftExplain, setDraftExplain] = useState("");
   const [view, setView] = useState<"reader" | "chat">("reader");
   const [corpusMaterial, setCorpusMaterial] = useState<ReturnType<typeof buildCorpusMaterial>>(null);
   const [corpusLoading, setCorpusLoading] = useState(true);
@@ -86,6 +135,10 @@ function WorkspacePage() {
   const [chatInput, setChatInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(() => getStoredChatSessionId());
+  /** From API readiness + optional reply parsing — Live insights column */
+  const [sessionInsights, setSessionInsights] = useState<SessionInsights | null>(null);
+  /** Bumps when insights update so cards replay the “popup” animation */
+  const [insightsEpoch, setInsightsEpoch] = useState(0);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -129,27 +182,32 @@ function WorkspacePage() {
     }
   }, [messages, thinking, view]);
 
-  const sendChat = async (textArg?: string) => {
-    const text = (textArg ?? chatInput).trim();
-    if (!text) return;
+  const coursePayload = currentChapter
+    ? {
+        lesson_title: currentChapter.name,
+        course_name: currentChapter.material,
+        ...(currentChapter.sourceFilename ? { allowed_sources: [currentChapter.sourceFilename] } : {}),
+      }
+    : undefined;
+
+  const runChatTurn = async (
+    userDisplay: string,
+    apiMessage: string,
+    opts?: { intent?: "revise" | "practice" | "learn_concept" | null; tool?: ToolKind | null },
+  ) => {
+    const intent = opts?.intent ?? null;
+    const tool = opts?.tool ?? null;
+    if (!apiMessage.trim()) return;
     setView("chat");
-    setMessages((m) => [...m, { id: crypto.randomUUID(), role: "user", text }]);
-    setChatInput("");
+    setMessages((m) => [...m, { id: crypto.randomUUID(), role: "user", text: userDisplay }]);
     setThinking(true);
 
     try {
       const res = await postChat({
-        message: text,
+        message: apiMessage,
         session_id: sessionId,
-        course_context: currentChapter
-          ? {
-              lesson_title: currentChapter.name,
-              course_name: currentChapter.material,
-              ...(currentChapter.sourceFilename
-                ? { allowed_sources: [currentChapter.sourceFilename] }
-                : {}),
-            }
-          : undefined,
+        intent,
+        course_context: coursePayload,
       });
       setSessionId(res.session_id);
       setStoredChatSessionId(res.session_id);
@@ -159,9 +217,46 @@ function WorkspacePage() {
           : [res.reply, ...(res.warnings?.length ? [`\n\n_${res.warnings.join(" ")}_`] : [])].join(
               "",
             );
+      const { cleaned, insights: parsedInsights } = stripSessionInsightLines(reply);
+      const merged = mergeSessionInsights(parsedInsights, res.session_insights ?? undefined);
+      if (merged && hasSessionInsights(merged)) {
+        setSessionInsights(merged);
+        setInsightsEpoch((e) => e + 1);
+      }
+
+      let bambooText = cleaned;
+      let quizItems: QuizItem[] | undefined;
+      let summarySections: SummarySections | null | undefined;
+      let variant: ChatMessage["variant"] = "default";
+
+      if (tool === "quiz") {
+        const items = extractQuizItems(cleaned, res.reply_raw);
+        if (items?.length) {
+          quizItems = items;
+          bambooText = quizIntroText(cleaned);
+        }
+      } else if (tool === "summary") {
+        variant = "summary";
+        const sections = parseSummarySections(cleaned);
+        if (sections) {
+          summarySections = sections;
+          bambooText = "";
+        }
+      } else if (tool === "explain") {
+        variant = "explain";
+      }
+
       setMessages((m) => [
         ...m,
-        { id: crypto.randomUUID(), role: "bamboo", text: reply, streaming: false },
+        {
+          id: crypto.randomUUID(),
+          role: "bamboo",
+          text: bambooText,
+          streaming: false,
+          quizItems,
+          summarySections: summarySections ?? undefined,
+          variant,
+        },
       ]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -171,13 +266,36 @@ function WorkspacePage() {
           id: crypto.randomUUID(),
           role: "bamboo",
           text:
-            `Could not reach the AI backend (${msg}). Start the API: \`uvicorn backend.app.main:app --reload --port 8000\` from the greenNovation folder.`,
+            `Could not reach the AI backend (${msg}). Start: \`uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8001\` (match VITE_API_PROXY_TARGET in frontend/.env.local).`,
           streaming: false,
         },
       ]);
     } finally {
       setThinking(false);
     }
+  };
+
+  const sendChat = async (textArg?: string) => {
+    const text = (textArg ?? chatInput).trim();
+    if (!text) return;
+    setChatInput("");
+    await runChatTurn(text, text, { intent: null, tool: null });
+  };
+
+  const submitTool = async (kind: ToolKind) => {
+    const draft = kind === "summary" ? draftSummary : kind === "quiz" ? draftQuiz : draftExplain;
+    const apiMessage = buildToolApiMessage(kind, draft);
+    const display =
+      draft.trim() ||
+      (kind === "summary"
+        ? "Summarize this lesson"
+        : kind === "quiz"
+          ? "Quiz me on this lesson"
+          : "Explain this lesson");
+    await runChatTurn(display, apiMessage, { intent: intentForTool(kind), tool: kind });
+    if (kind === "summary") setDraftSummary("");
+    else if (kind === "quiz") setDraftQuiz("");
+    else setDraftExplain("");
   };
 
   return (
@@ -409,6 +527,8 @@ function WorkspacePage() {
                         setStoredChatSessionId(null);
                         setSessionId(null);
                         setMessages([]);
+                        setSessionInsights(null);
+                        setInsightsEpoch(0);
                       }}
                       className="text-xs font-semibold text-muted-foreground hover:text-foreground"
                     >
@@ -426,7 +546,15 @@ function WorkspacePage() {
                     </div>
                   )}
                   {messages.map((m) => (
-                    <ChatBubble key={m.id} role={m.role} text={m.text} streaming={m.streaming} />
+                    <ChatBubble
+                      key={m.id}
+                      role={m.role}
+                      text={m.text}
+                      streaming={m.streaming}
+                      quizItems={m.quizItems}
+                      summarySections={m.summarySections}
+                      variant={m.variant ?? "default"}
+                    />
                   ))}
                   {thinking && <TypingDots />}
                 </div>
@@ -502,28 +630,65 @@ function WorkspacePage() {
                 </button>
               ))}
             </div>
-            <div className="p-5">
+            <div className="p-4 space-y-3">
               {tab === "summary" && (
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  Ask for a summary in chat — it will use your selected document and the course index when the API is
-                  running.
-                </p>
+                <>
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    Describe what to summarize (topic, section, or page). Leave blank to summarize the whole open
+                    lesson.
+                  </p>
+                  <textarea
+                    value={draftSummary}
+                    onChange={(e) => setDraftSummary(e.target.value)}
+                    placeholder="e.g. Summarize the section on inheritance and polymorphism…"
+                    rows={4}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/30 resize-y min-h-[88px]"
+                  />
+                </>
               )}
               {tab === "quiz" && (
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  For practice questions, use chat with prompts like “give me quiz questions on this PDF”. The tutor
-                  answers from your indexed materials.
-                </p>
+                <>
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    Say what the quiz should cover. Leave blank for a general quiz on the current lesson. Answers appear
+                    as expandable cards below each question.
+                  </p>
+                  <textarea
+                    value={draftQuiz}
+                    onChange={(e) => setDraftQuiz(e.target.value)}
+                    placeholder="e.g. Quiz me on loops and functions from this chapter…"
+                    rows={4}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/30 resize-y min-h-[88px]"
+                  />
+                </>
               )}
               {tab === "explain" && (
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  Use chat to request a simpler explanation of a passage or concept from the document you have open.
-                </p>
+                <>
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    Ask for a simpler explanation of a concept or passage. Leave blank for a gentle overview of the open
+                    lesson.
+                  </p>
+                  <textarea
+                    value={draftExplain}
+                    onChange={(e) => setDraftExplain(e.target.value)}
+                    placeholder="e.g. Explain recursion like I’m new to programming…"
+                    rows={4}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/30 resize-y min-h-[88px]"
+                  />
+                </>
               )}
+              <button
+                type="button"
+                onClick={() => void submitTool(tab)}
+                disabled={thinking}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl gradient-primary text-primary-foreground text-sm font-semibold py-2.5 px-3 shadow-glow hover:opacity-95 transition disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {thinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {tab === "summary" ? "Generate summary" : tab === "quiz" ? "Generate quiz" : "Generate explanation"}
+              </button>
             </div>
           </div>
 
-          <StudyNotifications />
+          <StudyNotifications sessionInsights={sessionInsights} insightsEpoch={insightsEpoch} />
         </aside>
       </div>
     </div>

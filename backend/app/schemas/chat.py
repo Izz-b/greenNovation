@@ -13,6 +13,14 @@ class ChatRequest(BaseModel):
     course_context: dict | None = None
 
 
+class SessionInsightsPayload(BaseModel):
+    """Structured tutor/session signals for the Live insights sidebar (camelCase JSON)."""
+
+    sessionMinutes: str | None = None
+    breakNeeded: str | None = None
+    difficultyAdjustment: str | None = None
+
+
 class ChatResponse(BaseModel):
     session_id: str
     reply: str
@@ -20,3 +28,4 @@ class ChatResponse(BaseModel):
     routing: dict | None = None
     errors: list[str] = []
     warnings: list[str] = []
+    session_insights: SessionInsightsPayload | None = None
