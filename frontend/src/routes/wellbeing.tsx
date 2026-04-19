@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
 import { AvatarTip } from "@/components/AvatarTip";
+import { useReadinessToday, useReadinessHistory, useSubmitCheckin } from "@/hooks/useReadiness";
 import {
   Smile,
   Meh,
@@ -86,7 +87,34 @@ function WellbeingPage() {
   const [mood, setMood] = useState<string | null>(null);
   const [journal, setJournal] = useState("");
 
+  // ─── Fetch data from backend ───
+  const { data: todayCheckin, isLoading: loadingToday } = useReadinessToday();
+  const { data: historyData, isLoading: loadingHistory } = useReadinessHistory(7);
+  const { mutate: submitCheckin, isPending: submitting } = useSubmitCheckin();
+
+  // ─── Pre-fill if already checked in today ───
+  useEffect(() => {
+    if (todayCheckin) {
+      setSleep(todayCheckin.sleep);
+      setFocus(todayCheckin.focus);
+      setMood(todayCheckin.mood);
+      setJournal(todayCheckin.journal || "");
+    }
+  }, [todayCheckin]);
+
   const checkedIn = sleep && focus && mood;
+
+  // ─── Handle submit ───
+  const handleSubmit = useCallback(() => {
+    if (checkedIn) {
+      submitCheckin({
+        sleep,
+        focus,
+        mood,
+        journal: journal || undefined,
+      });
+    }
+  }, [checkedIn, sleep, focus, mood, journal, submitCheckin]);
 
   // ─── Smart insights (AI feel) ───
   const insights = useMemo(() => {
@@ -139,16 +167,40 @@ function WellbeingPage() {
 
   // ─── Emotion distribution (donut) ───
   const emotionDist = useMemo(() => {
-    const happy = moodWeek.filter((m) => m === 3).length;
-    const neutral = moodWeek.filter((m) => m === 2).length;
-    const sad = moodWeek.filter((m) => m === 1).length;
-    const total = moodWeek.length;
+    if (!historyData?.summary) {
+      return { happy: 40, neutral: 40, sad: 20 };
+    }
     return {
-      happy: Math.round((happy / total) * 100),
-      neutral: Math.round((neutral / total) * 100),
-      sad: Math.round((sad / total) * 100),
+      happy: historyData.summary.happy_pct,
+      neutral: historyData.summary.neutral_pct,
+      sad: historyData.summary.sad_pct,
     };
-  }, []);
+  }, [historyData?.summary]);
+
+  // ─── Real data from backend ───
+  const moodWeekReal = useMemo(() => {
+    if (!historyData?.checkins || historyData.checkins.length === 0) return moodWeek;
+    const moodMap = { happy: 3, neutral: 2, sad: 1 };
+    const values = historyData.checkins.map((c) => moodMap[c.mood as keyof typeof moodMap] || 2);
+    // Pad with defaults only if fewer than 7 days
+    return values.length < 7 ? values.concat(Array(7 - values.length).fill(2)) : values.slice(-7);
+  }, [historyData?.checkins]);
+
+  const sleepWeekReal = useMemo(() => {
+    if (!historyData?.checkins || historyData.checkins.length === 0) return sleepWeek;
+    const sleepMap = { bad: 4, okay: 6, great: 8 };
+    const values = historyData.checkins.map((c) => sleepMap[c.sleep as keyof typeof sleepMap] || 6);
+    // Pad with defaults only if fewer than 7 days
+    return values.length < 7 ? values.concat(Array(7 - values.length).fill(6)) : values.slice(-7);
+  }, [historyData?.checkins]);
+
+  const focusWeekReal = useMemo(() => {
+    if (!historyData?.checkins || historyData.checkins.length === 0) return focusWeek;
+    const focusMap = { low: 1, medium: 3, high: 5 }; // 1-5 scale for chart
+    const values = historyData.checkins.map((c) => focusMap[c.focus as keyof typeof focusMap] || 3);
+    // Pad with defaults only if fewer than 7 days
+    return values.length < 7 ? values.concat(Array(7 - values.length).fill(3)) : values.slice(-7);
+  }, [historyData?.checkins]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -166,7 +218,9 @@ function WellbeingPage() {
           </div>
           <div>
             <h3 className="font-display text-xl font-bold leading-tight">Daily check-in</h3>
-            <p className="text-xs text-muted-foreground">3 quick taps. Be honest, panda won't tell.</p>
+            <p className="text-xs text-muted-foreground">
+              3 quick taps. Be honest, panda won't tell.
+            </p>
           </div>
         </div>
 
@@ -204,6 +258,26 @@ function WellbeingPage() {
             placeholder="A line for your future self…"
             className="w-full h-11 px-4 rounded-xl bg-muted/60 border border-transparent focus:bg-card focus:border-ring focus:outline-none text-sm transition-colors"
           />
+        </div>
+
+        <div className="mt-6 flex gap-3 items-center flex-wrap">
+          <button
+            onClick={handleSubmit}
+            disabled={!checkedIn || submitting}
+            className={`px-6 py-2.5 rounded-xl font-semibold transition-all ${
+              checkedIn && !submitting
+                ? "gradient-primary text-primary-foreground hover:shadow-lg cursor-pointer"
+                : "bg-muted text-muted-foreground cursor-not-allowed opacity-50"
+            }`}
+          >
+            {submitting ? "Saving..." : "Save Check-in"}
+          </button>
+          {todayCheckin && (
+            <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-success/10 text-success text-sm font-semibold">
+              <CheckCircle2 className="h-4 w-4" />
+              <span>Saved today</span>
+            </div>
+          )}
         </div>
       </section>
 
@@ -257,7 +331,13 @@ function WellbeingPage() {
               ↑ Improving
             </span>
           </div>
-          <MoodLineChart data={moodWeek} labels={DAYS} />
+          {loadingHistory ? (
+            <div className="h-44 flex items-center justify-center text-muted-foreground">
+              Loading...
+            </div>
+          ) : (
+            <MoodLineChart data={moodWeekReal} labels={DAYS} />
+          )}
         </section>
 
         <section className="rounded-3xl bg-card border border-border p-6 shadow-card">
@@ -287,7 +367,13 @@ function WellbeingPage() {
             </span>
           </div>
         </div>
-        <DualLineChart sleep={sleepWeek} focus={focusWeek} labels={DAYS} />
+        {loadingHistory ? (
+          <div className="h-64 flex items-center justify-center text-muted-foreground">
+            Loading...
+          </div>
+        ) : (
+          <DualLineChart sleep={sleepWeekReal} focus={focusWeekReal} labels={DAYS} />
+        )}
       </section>
 
       {/* ─── Study intensity (improved) ─── */}
@@ -524,9 +610,7 @@ function DualLineChart({
   const yFocus = (v: number) => h - pad - ((v - 1) / 4) * (h - pad * 2); // 1-5
 
   const mkPath = (arr: number[], yfn: (v: number) => number) =>
-    arr
-      .map((v, i) => `${i === 0 ? "M" : "L"} ${pad + i * stepX} ${yfn(v)}`)
-      .join(" ");
+    arr.map((v, i) => `${i === 0 ? "M" : "L"} ${pad + i * stepX} ${yfn(v)}`).join(" ");
 
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-52">
@@ -548,7 +632,11 @@ function DualLineChart({
         strokeWidth="2.5"
         strokeLinecap="round"
         pathLength={1}
-        style={{ strokeDasharray: 1, strokeDashoffset: 1, animation: "wb-draw 1.6s ease-out forwards" }}
+        style={{
+          strokeDasharray: 1,
+          strokeDashoffset: 1,
+          animation: "wb-draw 1.6s ease-out forwards",
+        }}
       />
       <path
         d={mkPath(focus, yFocus)}
@@ -569,7 +657,13 @@ function DualLineChart({
         </circle>
       ))}
       {focus.map((v, i) => (
-        <circle key={`f${i}`} cx={pad + i * stepX} cy={yFocus(v)} r={3.5} fill="var(--color-primary)">
+        <circle
+          key={`f${i}`}
+          cx={pad + i * stepX}
+          cy={yFocus(v)}
+          r={3.5}
+          fill="var(--color-primary)"
+        >
           <title>{`${labels[i]} · focus ${v}/5`}</title>
         </circle>
       ))}
@@ -590,15 +684,7 @@ function DualLineChart({
 }
 
 // ─── Donut chart ──────────────────────────────────────────────────────────────
-function EmotionDonut({
-  happy,
-  neutral,
-  sad,
-}: {
-  happy: number;
-  neutral: number;
-  sad: number;
-}) {
+function EmotionDonut({ happy, neutral, sad }: { happy: number; neutral: number; sad: number }) {
   const r = 56;
   const c = 2 * Math.PI * r;
   const segments = [
@@ -695,7 +781,12 @@ function StudyIntensitySection({ data, labels }: { data: number[]; labels: strin
           {balance.emoji} {balance.text}
         </span>
       </div>
-      <IntensityBars data={data} labels={labels.map((d) => d.slice(0, 3))} max={max} lighterIdx={lighterIdx} />
+      <IntensityBars
+        data={data}
+        labels={labels.map((d) => d.slice(0, 3))}
+        max={max}
+        lighterIdx={lighterIdx}
+      />
     </section>
   );
 }
@@ -744,7 +835,9 @@ function IntensityBars({
                 className="w-full rounded-t-2xl shadow-soft transition-all group-hover:brightness-110 group-hover:scale-[1.03] origin-bottom"
                 style={{
                   height: "0%",
-                  background: isLighter ? "url(#wb-bar-light) oklch(0.78 0.14 80)" : "url(#wb-bar-eco) oklch(0.6 0.14 160)",
+                  background: isLighter
+                    ? "url(#wb-bar-light) oklch(0.78 0.14 80)"
+                    : "url(#wb-bar-eco) oklch(0.6 0.14 160)",
                   backgroundImage: isLighter
                     ? "linear-gradient(to bottom, oklch(0.86 0.13 90), oklch(0.7 0.15 70))"
                     : "linear-gradient(to bottom, oklch(0.78 0.16 155), oklch(0.5 0.14 165))",

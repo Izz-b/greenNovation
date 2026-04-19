@@ -37,8 +37,8 @@ function pptxRendererOptimizeDeps(): Plugin {
  * Native Vite config (no @lovable.dev/vite-tanstack-config) to avoid CJS/ESM
  * issues with `lovable-tagger` on Windows + older Node.
  *
- * If port 8000 is taken, run uvicorn on 8001 and set in .env.local:
- *   VITE_API_PROXY_TARGET=http://127.0.0.1:8001
+ * Default dev API target is 8001. If your backend runs elsewhere, set in .env.local:
+ *   VITE_API_PROXY_TARGET=http://127.0.0.1:<your-port>
  *
  * Vite 7 recommends Node 20.19+ or 22.12+. Upgrade Node if dev still warns or fails.
  */
@@ -51,7 +51,7 @@ export default defineConfig(async ({ mode, command }) => {
     envDefine[`import.meta.env.${key}`] = JSON.stringify(value);
   }
 
-  const apiProxyTarget = loadedEnv.VITE_API_PROXY_TARGET || "http://127.0.0.1:8000";
+  const apiProxyTarget = loadedEnv.VITE_API_PROXY_TARGET || "http://127.0.0.1:8001";
 
   const plugins: NonNullable<import("vite").UserConfig["plugins"]> = [
     tailwindcss(),

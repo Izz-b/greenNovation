@@ -20,8 +20,7 @@ from backend.app.config import bootstrap
 # Must run before any `ai.*` import (RAG loads FAISS at module import time).
 bootstrap()
 
-from backend.app.api.routes import chat, corpus, health, projects, readiness, session
-
+from backend.app.api.routes import chat, corpus, forest, health, projects, readiness, session
 app = FastAPI(title="greenNovation API", version="0.1.0")
 
 app.add_middleware(
@@ -37,6 +36,7 @@ app.add_middleware(
 
 app.include_router(chat.router)
 app.include_router(corpus.router)
+app.include_router(forest.router)
 app.include_router(health.router)
 app.include_router(projects.router)
 app.include_router(readiness.router)
