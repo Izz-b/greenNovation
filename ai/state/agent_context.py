@@ -244,6 +244,12 @@ class ResponseDraft(TypedDict, total=False):
     key_points: List[str]
 
 
+class PlannerState(TypedDict, total=False):
+    """Daily planner cadence; single key used by graph + `planning_agent`."""
+    last_generated_date: str  # ISO date (UTC), e.g. "2026-04-19"
+    turns_since_last_plan: int
+
+
 class AgentRunMeta(TypedDict, total=False):
     status: Literal["pending", "success", "failed", "skipped"]
     started_at: str
@@ -292,6 +298,8 @@ class AgentContext(TypedDict, total=False):
     # ---- downstream/final ----
     final_response: Any  # can be str OR JSON (quiz)
     planning_task: Dict[str, Any]
+    planner_state: PlannerState
+    force_planner: bool
 
     # ---- energy tracking (NEW) ----
     total_tokens_used: int
