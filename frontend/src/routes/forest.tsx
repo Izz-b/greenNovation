@@ -3,7 +3,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { PageHeader } from "@/components/PageHeader";
 import { AvatarTip } from "@/components/AvatarTip";
 import { PENDING_REWARD_KEY } from "@/components/DailyReward";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, useCallback } from "react";
 import { Trees, Flame, Leaf, Award, Sprout, Sparkles, Gift } from "lucide-react";
 import treeOak from "@/assets/tree-oak.png";
 import treePine from "@/assets/tree-pine.png";
@@ -11,6 +11,7 @@ import treeBlossom from "@/assets/tree-blossom.png";
 import treeBamboo from "@/assets/tree-bamboo.png";
 import treeSapling from "@/assets/tree-sapling.png";
 import { useTreeInventory } from "@/hooks/useTreeInventory";
+import { useForest, useForestInventory, usePlantTree } from "@/hooks/useForest";
 import { consumeTree } from "@/lib/treeInventory";
 
 export const Route = createFileRoute("/forest")({
@@ -75,7 +76,7 @@ const INITIAL_TREES: Tree[] = (() => {
   const rand = mulberry32(42);
   const trees: Tree[] = [];
   // Back row — small, distant
-  const backCount = 8;
+  const backCount = 5;
   for (let i = 0; i < backCount; i++) {
     const kind = TREE_KINDS[Math.floor(rand() * TREE_KINDS.length)];
     trees.push({
@@ -87,7 +88,7 @@ const INITIAL_TREES: Tree[] = (() => {
     });
   }
   // Front row — larger, closer
-  const frontCount = 6;
+  const frontCount = 5;
   for (let i = 0; i < frontCount; i++) {
     const kind = TREE_KINDS[Math.floor(rand() * TREE_KINDS.length)];
     trees.push({
@@ -103,32 +104,72 @@ const INITIAL_TREES: Tree[] = (() => {
 
 function ForestPage() {
   const { reward } = Route.useSearch();
-  const { count: available } = useTreeInventory();
+  // Both localStorage and backend
+  const { count: localAvailable } = useTreeInventory();
+  const { data: backendForest, isLoading: forestLoading } = useForest();
+  const { data: backendInventory } = useForestInventory();
+  const { mutate: plantViaBackend, isPending: backendPlanting } = usePlantTree();
+
+  // Use backend inventory if available, otherwise fall back to localStorage
+  const available = backendInventory?.available ?? localAvailable;
+  const backendTrees = backendForest?.trees ?? [];
+
   const [trees, setTrees] = useState<Tree[]>(INITIAL_TREES);
   const [planting, setPlanting] = useState(false);
   const [growSpot, setGrowSpot] = useState<{ x: number; y: number } | null>(null);
   const claimedRef = useRef(false);
   const sceneRef = useRef<HTMLElement | null>(null);
 
+  // Initialize trees from backend when loaded
+  useEffect(() => {
+    if (!forestLoading && backendTrees.length > 0) {
+      // Convert backend trees to frontend format, keep initial trees as base
+      const convertedTrees: Tree[] = backendTrees.map((t) => ({
+        id: parseInt(t.id.slice(0, 10)) || Math.random() * 10000, // Generate numeric ID from UUID
+        kind: t.kind,
+        x: t.x,
+        y: t.y,
+        scale: t.scale,
+        growing: false,
+      }));
+      // Combine with initial trees (they stay as background)
+      setTrees(INITIAL_TREES.concat(convertedTrees));
+    }
+  }, [forestLoading, backendTrees]);
+
   const stats = [
-    { icon: Trees, label: "Trees grown", value: String(trees.length), color: "bg-primary/10 text-primary" },
-    { icon: Gift, label: "Trees to plant", value: String(available), color: "bg-warning/15 text-warning-foreground" },
+    {
+      icon: Trees,
+      label: "Trees grown",
+      value: String(trees.length),
+      color: "bg-primary/10 text-primary",
+    },
+    {
+      icon: Gift,
+      label: "Trees to plant",
+      value: String(available),
+      color: "bg-warning/15 text-warning-foreground",
+    },
     { icon: Flame, label: "Streak", value: "4 days", color: "bg-accent text-accent-foreground" },
-    { icon: Leaf, label: "CO₂ saved (sim.)", value: `${(trees.length * 0.2).toFixed(1)} kg`, color: "bg-success/10 text-success" },
+    {
+      icon: Leaf,
+      label: "CO₂ saved (sim.)",
+      value: `${(trees.length * 0.2).toFixed(1)} kg`,
+      color: "bg-success/10 text-success",
+    },
     { icon: Award, label: "Level", value: "Sprout · 3", color: "bg-info/10 text-info" },
   ];
 
-  const plantTreeAt = (x: number, y: number, _forceBamboo = false) => {
-    const kind = TREE_KINDS[Math.floor(Math.random() * TREE_KINDS.length)];
+  const plantTreeAt = useCallback((x: number, y: number, treekind: TreeKind) => {
     const scale = 0.7 + Math.random() * 0.2;
     const newTree: Tree = {
       id: Date.now(),
-      kind,
+      kind: treekind,
       x,
       y,
       scale,
       growing: true,
-      isBamboo: kind === "bamboo",
+      isBamboo: treekind === "bamboo",
     };
     setGrowSpot({ x, y });
     setTrees((t) => [...t, newTree]);
@@ -145,17 +186,48 @@ function ForestPage() {
       setTrees((t) => t.map((tr) => (tr.id === newTree.id ? { ...tr, growing: false } : tr)));
       setPlanting(false);
     }, 2600);
-  };
+  }, []);
 
-  const plantTree = () => {
-    if (planting) return;
+  const plantTree = useCallback(() => {
+    if (planting || backendPlanting) return;
     if (available <= 0) return;
-    if (!consumeTree()) return;
-    setPlanting(true);
+
     const x = 8 + Math.random() * 84;
     const y = 60 + Math.random() * 28;
-    plantTreeAt(x, y, true);
-  };
+    const kind = TREE_KINDS[Math.floor(Math.random() * TREE_KINDS.length)];
+
+    setPlanting(true);
+
+    // Try backend first, then fall back to localStorage
+    if (backendInventory) {
+      // Backend available: send to backend
+      plantViaBackend(
+        { kind, x, y, scale: 0.7 + Math.random() * 0.2 },
+        {
+          onSuccess: () => {
+            // Also consume from localStorage to keep in sync
+            consumeTree();
+            plantTreeAt(x, y, kind);
+          },
+          onError: () => {
+            // Fallback to localStorage if backend fails
+            if (consumeTree()) {
+              plantTreeAt(x, y, kind);
+            } else {
+              setPlanting(false);
+            }
+          },
+        },
+      );
+    } else {
+      // Backend not available: use localStorage only
+      if (consumeTree()) {
+        plantTreeAt(x, y, kind);
+      } else {
+        setPlanting(false);
+      }
+    }
+  }, [planting, backendPlanting, available, backendInventory, plantViaBackend, plantTreeAt]);
 
   // Auto-plant the daily reward tree on arrival (when navigated with ?reward=1)
   useEffect(() => {
@@ -165,24 +237,52 @@ function ForestPage() {
     if (reward === 1 && pending === "1" && available > 0) {
       claimedRef.current = true;
       localStorage.removeItem(PENDING_REWARD_KEY);
-      if (!consumeTree()) return;
-      setPlanting(true);
-      // Give the page a beat to mount before the seed sprouts
-      setTimeout(() => {
-        const x = 20 + Math.random() * 60;
-        const y = 64 + Math.random() * 22;
-        plantTreeAt(x, y, true);
-      }, 700);
+
+      const x = 20 + Math.random() * 60;
+      const y = 64 + Math.random() * 22;
+      const kind = TREE_KINDS[Math.floor(Math.random() * TREE_KINDS.length)];
+
+      // Try backend first
+      if (backendInventory) {
+        plantViaBackend(
+          { kind, x, y, scale: 0.7 + Math.random() * 0.2 },
+          {
+            onSuccess: () => {
+              consumeTree();
+              setPlanting(true);
+              setTimeout(() => {
+                plantTreeAt(x, y, kind);
+              }, 700);
+            },
+            onError: () => {
+              if (consumeTree()) {
+                setPlanting(true);
+                setTimeout(() => {
+                  plantTreeAt(x, y, kind);
+                }, 700);
+              }
+            },
+          },
+        );
+      } else {
+        if (consumeTree()) {
+          setPlanting(true);
+          setTimeout(() => {
+            plantTreeAt(x, y, kind);
+          }, 700);
+        }
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reward, available]);
+  }, [reward, available, backendInventory, plantViaBackend, plantTreeAt]);
 
-  const canPlant = available > 0 && !planting;
-  const buttonLabel = planting
-    ? "Planting…"
-    : available > 0
-      ? `Plant a tree (${available})`
-      : "No trees available";
+  const canPlant = available > 0 && !planting && !backendPlanting;
+  const buttonLabel =
+    planting || backendPlanting
+      ? "Planting…"
+      : available > 0
+        ? `Plant a tree (${available})`
+        : "No trees available";
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -222,7 +322,10 @@ function ForestPage() {
       </div>
 
       {/* The forest scene */}
-      <section ref={sceneRef} className="rounded-3xl shadow-card relative overflow-hidden border border-primary/10">
+      <section
+        ref={sceneRef}
+        className="rounded-3xl shadow-card relative overflow-hidden border border-primary/10"
+      >
         {/* Sky → ground gradient */}
         <div
           className="relative w-full"
@@ -322,7 +425,7 @@ function ForestPage() {
                 />
                 {/* Rising sparkle particles */}
                 {Array.from({ length: 12 }).map((_, i) => {
-                  const drift = (i % 2 === 0 ? 1 : -1) * (8 + (i * 7) % 28);
+                  const drift = (i % 2 === 0 ? 1 : -1) * (8 + ((i * 7) % 28));
                   const delay = (i * 0.12).toFixed(2);
                   const dur = (1.8 + (i % 4) * 0.35).toFixed(2);
                   return (
@@ -393,9 +496,7 @@ function ForestPage() {
                       transform: "translate(-50%, -50%)",
                       filter: "blur(2px)",
                       zIndex: Math.round(t.y) - 1,
-                      animation: t.growing
-                        ? "tree-shadow-in 1.6s ease-out forwards"
-                        : undefined,
+                      animation: t.growing ? "tree-shadow-in 1.6s ease-out forwards" : undefined,
                       opacity: t.growing ? undefined : 0.35,
                     }}
                   />
