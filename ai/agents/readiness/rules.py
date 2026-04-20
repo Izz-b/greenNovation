@@ -40,6 +40,72 @@ def choose_intensity(
     return "normal", 30
 
 
+def mvp_turn_overlay(
+    query: str,
+    intent: str,
+    difficulty_adjustment: str,
+    support_tone: str,
+) -> tuple[str, str]:
+    """
+    MVP: adjust difficulty/support from the *current user message* and orchestrator intent.
+
+    Passive signals alone often pin intensity to "full" → "increase" even when the learner
+    asks a short conceptual question. This overlay makes Live Insights testable and aligned
+    with explain vs practice vs revise turns.
+    """
+    q = (query or "").strip().lower()
+    intent_n = (intent or "unknown").strip().lower()
+
+    def soften_tone(t: str) -> str:
+        if t == "challenging":
+            return "neutral"
+        if t == "neutral":
+            return "supportive"
+        return t
+
+    if _is_simple_concept_turn(q, intent_n):
+        if difficulty_adjustment == "increase":
+            return "keep", soften_tone(support_tone)
+        if difficulty_adjustment == "keep":
+            return "decrease", "supportive"
+        return difficulty_adjustment, support_tone if support_tone == "supportive" else soften_tone(support_tone)
+
+    if intent_n == "practice":
+        if difficulty_adjustment == "decrease":
+            return "keep", support_tone
+        if difficulty_adjustment == "keep":
+            return "increase", "challenging"
+        return difficulty_adjustment, support_tone
+
+    if intent_n == "revise" and difficulty_adjustment == "increase":
+        return "keep", "neutral"
+
+    return difficulty_adjustment, support_tone
+
+
+def _is_simple_concept_turn(q: str, intent_n: str) -> bool:
+    if intent_n not in ("learn_concept", "unknown"):
+        return False
+    if len(q.split()) > 24:
+        return False
+    markers = (
+        "explain",
+        "what is",
+        "what's",
+        "whats ",
+        "define ",
+        "describe ",
+        "simply",
+        "basic",
+        "beginner",
+        "help me understand",
+        "in simple",
+        "concept simply",
+        "this concept",
+    )
+    return any(m in q for m in markers)
+
+
 def derive_adaptation_controls(recommended_intensity: str) -> tuple[str, bool, str]:
     """
     Returns:

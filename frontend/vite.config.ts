@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv } from "vite";
 import type { Plugin } from "vite";
 import tailwindcss from "@tailwindcss/vite";
@@ -41,8 +42,10 @@ function pptxRendererOptimizeDeps(): Plugin {
  *
  * Vite 7 recommends Node 20.19+ or 22.12+. Upgrade Node if dev still warns or fails.
  */
+const projectDir = path.dirname(fileURLToPath(import.meta.url));
+
 export default defineConfig(async ({ mode, command }) => {
-  const loadedEnv = loadEnv(mode, process.cwd(), "VITE_");
+  const loadedEnv = loadEnv(mode, projectDir, "VITE_");
   const envDefine: Record<string, string> = {};
   for (const [key, value] of Object.entries(loadedEnv)) {
     envDefine[`import.meta.env.${key}`] = JSON.stringify(value);
@@ -71,9 +74,10 @@ export default defineConfig(async ({ mode, command }) => {
     define: envDefine,
     resolve: {
       alias: {
-        "@": `${process.cwd()}/src`,
+        /** Use config dir, not `process.cwd()` — SSR can run with a different CWD and break `@/` imports. */
+        "@": path.join(projectDir, "src"),
         /** Prefer CJS entry so imports match `import JSZip from "jszip"` when not yet optimized */
-        jszip: path.resolve(process.cwd(), "node_modules/jszip/lib/index.js"),
+        jszip: path.resolve(projectDir, "node_modules/jszip/lib/index.js"),
       },
       dedupe: [
         "react",

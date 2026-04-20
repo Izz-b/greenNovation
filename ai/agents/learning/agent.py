@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Dict, List, Any
 from langchain_groq import ChatGroq
 import json
@@ -48,6 +50,41 @@ def build_history(session_history: List[Dict], max_turns: int = 5) -> str:
         history += f"{prefix}: {content}\n"
     return history
 
+
+def apply_prompt_hint(task_instruction: str, answer_type: str, hint: str | None) -> str:
+    """
+    Workspace chat chips send prompt_hint so answers differ from free-typed questions
+    (plain language vs example-first vs tight summary).
+    """
+    if not hint or not str(hint).strip():
+        return task_instruction
+    h = str(hint).strip()
+    extras: Dict[str, str] = {
+        "explain_simple": (
+            "\n\nChip style — explain simply: plain language and short sentences; define jargon in one line; "
+            "structure as intuition, then optional analogy, then one takeaway; avoid generic lecture-style headings."
+        ),
+        "give_example": (
+            "\n\nChip style — example first: open with ONE concrete example grounded in the context "
+            "(code, scenario, or steps), then briefly explain why it illustrates the idea."
+        ),
+        "summarize_page": (
+            "\n\nChip style — summarize: tight bullets or a short numbered list (at most 5 points); "
+            "no long narrative opener; end with one sentence linking to the broader lesson."
+        ),
+    }
+    extra = extras.get(h)
+    if not extra:
+        return task_instruction
+    if answer_type in (
+        "explanation",
+        "explanation_with_questions",
+        "supportive_guidance",
+        "summary_with_questions",
+        "plan",
+    ):
+        return task_instruction + extra
+    return task_instruction
 
 
 # PROFILE ADAPTATION
@@ -210,6 +247,10 @@ Provide a structured study plan.
 """
     else:
         task_instruction = "Provide a clear explanation with examples."
+
+    ph = state.get("prompt_hint")
+    hint_s = ph.strip() if isinstance(ph, str) else None
+    task_instruction = apply_prompt_hint(task_instruction, answer_type, hint_s)
 
     return f"""
 You are an academic assistant.

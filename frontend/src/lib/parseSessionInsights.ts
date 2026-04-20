@@ -3,6 +3,8 @@
  * We surface those in "Live insights" and remove them from the chat bubble.
  */
 
+import type { SessionInsightsPayload } from "./api";
+
 export type SessionInsights = {
   sessionMinutes?: string;
   breakNeeded?: string;
@@ -16,7 +18,7 @@ export function hasSessionInsights(s: SessionInsights | null | undefined): boole
 /** Prefer API payload; fill gaps from parsed reply lines. */
 export function mergeSessionInsights(
   fromParser: SessionInsights | null,
-  fromApi: Partial<SessionInsights> | null | undefined,
+  fromApi: Partial<SessionInsights> | SessionInsightsPayload | null | undefined,
 ): SessionInsights | null {
   const p = fromParser ?? {};
   const a = fromApi ?? {};

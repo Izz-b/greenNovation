@@ -1,4 +1,5 @@
 from ai.agents.readiness.agent import run_readiness_agent
+from ai.agents.readiness.rules import mvp_turn_overlay
 import json
 
 
@@ -137,3 +138,45 @@ def test_readiness_agent_detects_stable_case():
     assert signal["recommended_intensity"] in ["normal", "full"]
     assert signal["workload_pressure_band"] == "low"
     assert signal["support_tone"] in ["neutral", "challenging"]
+
+
+def test_mvp_turn_overlay_softens_increase_on_short_explain():
+    d, t = mvp_turn_overlay("what is an adapter?", "learn_concept", "increase", "challenging")
+    assert d == "keep"
+    assert t == "neutral"
+
+
+def test_mvp_turn_overlay_maps_keep_to_decrease_when_still_simple():
+    d, t = mvp_turn_overlay("explain adapters simply", "learn_concept", "keep", "neutral")
+    assert d == "decrease"
+    assert t == "supportive"
+
+
+def test_mvp_turn_overlay_practice_nudges_difficulty_up():
+    d, t = mvp_turn_overlay("quiz me on chapter 2", "practice", "keep", "neutral")
+    assert d == "increase"
+    assert t == "challenging"
+
+
+def test_readiness_agent_applies_overlay_when_query_present():
+    state = {
+        "passive_behavior_signals": {
+            "tasks_due_3d": 0,
+            "overdue_tasks": 0,
+            "project_risk_level": "low",
+            "study_sessions_last_7d": 6,
+            "avg_session_completion_rate": 0.9,
+            "avg_quiz_score_trend": 5,
+            "late_night_activity_ratio": 0.1,
+            "long_sessions_without_breaks": 0,
+        },
+        "query": "what is an adapter?",
+        "routing": {"intent": "learn_concept"},
+        "agent_runs": {},
+        "traces": [],
+        "errors": [],
+    }
+    result = run_readiness_agent(state)
+    sig = result["readiness_signal"]
+    # Passive path often yields "full" → increase; overlay should soften
+    assert sig["difficulty_adjustment"] in ("keep", "decrease")

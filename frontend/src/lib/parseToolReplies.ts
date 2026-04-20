@@ -92,3 +92,47 @@ export function parseSummarySections(text: string): SummarySections | null {
 
   return null;
 }
+
+/** Lines like `[1] file.pdf (p.12)` after a `Sources:` heading (RAG citations). */
+export function parseSourcesFromReply(text: string): string[] {
+  const t = text.replace(/\r\n/g, "\n");
+  const m = t.match(/(?:^|\n)(?:#{1,3}\s*)?(?:\*\*)?Sources?:?\s*(?:\*\*)?\s*\n([\s\S]*)$/i);
+  if (!m?.[1]) return [];
+  const block = m[1];
+  const lines = block
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const out: string[] = [];
+  for (const line of lines) {
+    if (/^\[\d+\]/.test(line)) {
+      const rest = line.replace(/^\[\d+\]\s*/, "").trim();
+      out.push(rest || line);
+    }
+  }
+  return out;
+}
+
+/** Remove the Sources block from assistant markdown when we show it in the sidebar. */
+export function stripSourcesBlock(text: string): string {
+  const t = text.replace(/\r\n/g, "\n");
+  if (!/\bSources?:\s*/i.test(t)) return text.trim();
+  const re = /\n(?:#{1,3}\s*)?(?:\*\*)?Sources?:?\s*(?:\*\*)?\s*\n[\s\S]*$/i;
+  return t.replace(re, "").trim();
+}
+
+export type RoutingSummary = { intent: string; reason: string; agents: string };
+
+/** Compact labels for orchestrator `routing` (intent, agents run, reason). */
+export function formatRoutingSummary(routing: Record<string, unknown> | null | undefined): RoutingSummary | null {
+  if (!routing || typeof routing !== "object") return null;
+  const intent = String(routing.intent ?? "unknown");
+  const reason = String(routing.route_reason ?? "").trim();
+  const agents = routing.requested_agents;
+  const agentsLabel = Array.isArray(agents) ? agents.map((a) => String(a)).join(" · ") : "";
+  return {
+    intent,
+    reason: reason || "—",
+    agents: agentsLabel || "—",
+  };
+}

@@ -7,6 +7,7 @@ from .rules import (
     choose_intensity,
     compute_risk_flags,
     derive_adaptation_controls,
+    mvp_turn_overlay,
     select_top_risk_flags,
     to_band,
 )
@@ -64,6 +65,16 @@ def run_readiness_agent(state: AgentContext) -> AgentContext:
             top_risk_flags=top_risk_flags,
         )
 
+        query = (state.get("query") or "").strip()
+        routing_intent = (state.get("routing") or {}).get("intent") or "unknown"
+        adj_diff, adj_tone = mvp_turn_overlay(query, str(routing_intent), difficulty_adjustment, support_tone)
+        overlay_applied = (adj_diff, adj_tone) != (difficulty_adjustment, support_tone)
+        if overlay_applied:
+            reasoning_summary = (
+                reasoning_summary
+                + " This turn was adjusted to match a short conceptual question (MVP pacing)."
+            )
+
         output = ReadinessOutput(
             workload_pressure_score=workload_pressure_score,
             study_stability_score=study_stability_score,
@@ -75,9 +86,9 @@ def run_readiness_agent(state: AgentContext) -> AgentContext:
             behavioral_fatigue_band=behavioral_fatigue_band,
             recommended_intensity=recommended_intensity,
             suggested_session_minutes=suggested_session_minutes,
-            difficulty_adjustment=difficulty_adjustment,
+            difficulty_adjustment=adj_diff,
             break_recommendation=break_recommendation,
-            support_tone=support_tone,
+            support_tone=adj_tone,
             risk_flags=risk_flags,
             top_risk_flags=top_risk_flags,
             reasoning_summary=reasoning_summary,
@@ -109,9 +120,10 @@ def run_readiness_agent(state: AgentContext) -> AgentContext:
                 },
                 "recommended_intensity": recommended_intensity,
                 "suggested_session_minutes": suggested_session_minutes,
-                "difficulty_adjustment": difficulty_adjustment,
+                "difficulty_adjustment": adj_diff,
+                "support_tone": adj_tone,
+                "mvp_turn_overlay_applied": overlay_applied,
                 "break_recommendation": break_recommendation,
-                "support_tone": support_tone,
                 "risk_flags": risk_flags,
                 "top_risk_flags": top_risk_flags,
             }
