@@ -427,14 +427,6 @@ bun install
 
 ---
 
-## 📞 Support & Contact
-
-- **Issues**: Report bugs on [GitHub Issues](https://github.com/yourusername/greenNovation/issues)
-- **Discussions**: Ask questions on [GitHub Discussions](https://github.com/yourusername/greenNovation/discussions)
-- **Email**: contact@greennovation.dev
-
----
-
 ## 📄 License
 
 This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
@@ -448,14 +440,5 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 - UI components by [Radix UI](https://www.radix-ui.com/)
 
 ---
-
-## 🌟 Show Your Support
-
-If you find greenNovation helpful, please consider:
-
-- ⭐ Starring the repository
-- 🔄 Sharing with others
-- 🐛 Reporting issues and bugs
-- 💡 Contributing features and improvements
 
 **Made with 💚 for students everywhere.**
